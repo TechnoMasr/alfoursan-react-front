@@ -47,7 +47,7 @@ if (typeof window !== "undefined") {
 }
 
 /**
- * @param {{ imei: string, carName: string, alarmText: string, speed?: number, date?: string }} payload
+ * @param {{ imei: string, carId?: string|number, carName: string, alarmText: string, speed?: number, date?: string }} payload
  */
 export function pushAlarmEntry(payload) {
   if (typeof window !== "undefined" && window.__ALARM_POOL_ENABLED__ === false) {
@@ -58,6 +58,7 @@ export function pushAlarmEntry(payload) {
     id,
     at: Date.now(),
     imei: String(payload.imei ?? ""),
+    carId: payload.carId != null ? payload.carId : null,
     carName: String(payload.carName ?? ""),
     alarmText: String(payload.alarmText ?? ""),
     speed: payload.speed,

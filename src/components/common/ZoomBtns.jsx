@@ -9,7 +9,11 @@ const ZoomBtns = ({ mapProvider, setViewState }) => {
   const handleZoomIn = () => {
     const newZoom = Math.min(zoom + 1, 20); // أقصى زوم 20
     dispatch(changeZoom(newZoom));
-    if (mapProvider === "mapbox") {
+    if (
+      mapProvider === "mapbox" ||
+      mapProvider === "maplibre" ||
+      mapProvider === "maptiler"
+    ) {
       setViewState((v) => ({ ...v, zoom: newZoom }));
     }
   };
@@ -17,7 +21,11 @@ const ZoomBtns = ({ mapProvider, setViewState }) => {
   const handleZoomOut = () => {
     const newZoom = Math.max(zoom - 1, 2); // أقل زوم 2
     dispatch(changeZoom(newZoom));
-    if (mapProvider === "mapbox") {
+    if (
+      mapProvider === "mapbox" ||
+      mapProvider === "maplibre" ||
+      mapProvider === "maptiler"
+    ) {
       setViewState((v) => ({ ...v, zoom: newZoom }));
     }
   };

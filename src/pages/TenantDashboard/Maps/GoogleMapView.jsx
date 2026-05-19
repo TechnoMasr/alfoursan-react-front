@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Supercluster from "supercluster";
 import { useDispatch, useSelector } from "react-redux";
 import { openGeoFenceModal } from "../../../store/modalsSlice";
-import { changeZoom } from "../../../store/mapSlice";
+import { changeZoom, isGoogleMapType } from "../../../store/mapSlice";
 import { carPath } from "../../../services/carPath";
 import { getCarStatus } from "../../../utils/getCarStatus";
 
@@ -31,6 +31,8 @@ const GoogleMapView = ({
     mapType,
     showDeviceName,
   } = useSelector((state) => state.map);
+
+  const googleMapTypeId = isGoogleMapType(mapType) ? mapType : "roadmap";
 
   const dispatch = useDispatch();
 
@@ -705,7 +707,7 @@ const GoogleMapView = ({
         options={{
           fullscreenControl: false,
           mapTypeControl: false,
-          mapTypeId: mapType,
+          mapTypeId: googleMapTypeId,
         }}
       >
         {selectedCarId &&

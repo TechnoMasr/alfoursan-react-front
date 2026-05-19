@@ -1,5 +1,19 @@
 import { createSlice } from "@reduxjs/toolkit";
 
+/** مزوّدو خرائط يدعمون تجميع المركبات (clusters) */
+export const MAP_PROVIDERS_WITH_CLUSTERS = ["google", "openstreetmap"];
+
+export function mapProviderSupportsClusters(provider) {
+  return MAP_PROVIDERS_WITH_CLUSTERS.includes(provider);
+}
+
+/** أنواع الخريطة المدعومة في Google Maps */
+export const GOOGLE_MAP_TYPES = ["roadmap", "satellite", "terrain", "hybrid"];
+
+export function isGoogleMapType(mapType) {
+  return GOOGLE_MAP_TYPES.includes(mapType);
+}
+
 const initialState = {
   provider: localStorage.getItem("mapProvider") || "google",
   clusters: false,
@@ -8,6 +22,8 @@ const initialState = {
   zoom: 7,
   notificationSound:
     localStorage.getItem("notificationSound") === "false" ? false : true,
+  alarmPopupEnabled:
+    localStorage.getItem("alarmPopupEnabled") === "false" ? false : true,
 };
 
 const mapSlice = createSlice({
@@ -20,10 +36,28 @@ const mapSlice = createSlice({
       localStorage.setItem("mapProvider", action.payload);
       state.zoom = 7;
 
-      // لو اخترت mapbox نخلي النوع roadmap
-      if (action.payload === "mapbox") {
+      // لو اخترت mapbox أو openstreetmap نخلي النوع roadmap
+      if (
+        action.payload === "mapbox" ||
+        action.payload === "openstreetmap" ||
+        action.payload === "maplibre"
+      ) {
         state.mapType = "roadmap";
         localStorage.setItem("mapType", "roadmap");
+      }
+
+      if (action.payload === "maptiler") {
+        state.mapType = "mt-streets";
+        localStorage.setItem("mapType", "mt-streets");
+      }
+
+      if (action.payload === "google" && !isGoogleMapType(state.mapType)) {
+        state.mapType = "roadmap";
+        localStorage.setItem("mapType", "roadmap");
+      }
+
+      if (!mapProviderSupportsClusters(action.payload)) {
+        state.clusters = false;
       }
     },
 
@@ -32,8 +66,13 @@ const mapSlice = createSlice({
       state.mapType = action.payload;
       localStorage.setItem("mapType", action.payload);
 
-      // أي نوع غير roadmap يخلي الخريطة جوجل
-      if (action.payload !== "roadmap") {
+      // أي نوع غير roadmap يخلي الخريطة جوجل (ما عدا OpenStreetMap)
+      if (
+        action.payload !== "roadmap" &&
+        state.provider !== "openstreetmap" &&
+        state.provider !== "maplibre" &&
+        state.provider !== "maptiler"
+      ) {
         state.provider = "google";
         localStorage.setItem("mapProvider", "google");
       }
@@ -58,6 +97,14 @@ const mapSlice = createSlice({
         state.notificationSound ? "true" : "false"
       );
     },
+
+    toggleAlarmPopup: (state) => {
+      state.alarmPopupEnabled = !state.alarmPopupEnabled;
+      localStorage.setItem(
+        "alarmPopupEnabled",
+        state.alarmPopupEnabled ? "true" : "false"
+      );
+    },
   },
 });
 
@@ -65,12 +112,8 @@ const mapSlice = createSlice({
 export const toggleClusters = () => (dispatch, getState) => {
   const { provider, clusters } = getState().map;
 
-  if (provider !== "google") {
-    dispatch(switchMap("google"));
-    setTimeout(() => dispatch(setClusters(!clusters)), 300); // أقل زمن كافي لتحديث الخريطة
-  } else {
-    dispatch(setClusters(!clusters));
-  }
+  if (!mapProviderSupportsClusters(provider)) return;
+  dispatch(setClusters(!clusters));
 };
 
 export const {
@@ -80,6 +123,7 @@ export const {
   setMapType,
   changeZoom,
   toggleNotificationSound,
+  toggleAlarmPopup,
 } = mapSlice.actions;
 
 export default mapSlice.reducer;

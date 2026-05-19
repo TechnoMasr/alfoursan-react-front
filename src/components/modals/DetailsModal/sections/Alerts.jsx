@@ -46,9 +46,9 @@ const Alerts = ({ deviceSettings, refetch }) => {
   const alertsList = [
     { label: t("alerts.speedLimit"), key: "alert_speed_limit" },
     { label: t("alerts.offline"), key: "alert_offline" },
-    { label: t("alerts.restrictedDriving"), key: "alert_restricted_driving" },
+    // { label: t("alerts.restrictedDriving"), key: "alert_restricted_driving" },
     { label: t("alerts.lowVoltage"), key: "alert_low_voltage" },
-    { label: t("alerts.restThreshold"), key: "alert_rest_threshold" },
+    // { label: t("alerts.restThreshold"), key: "alert_rest_threshold" },
     { label: t("alerts.idleSpeed"), key: "alert_idle_speed" },
     { label: t("alerts.fatigueDriving"), key: "alert_fatigue_driving" },
     { label: t("alerts.accOff"), key: "alert_acc_off" },

@@ -21,7 +21,7 @@ import Loader from "../Loading/Loader";
 import { toast } from "react-toastify";
 import { useTranslation } from "react-i18next";
 
-const PolygonMenu = () => {
+const PolygonMenu = ({ onDrawSelect }) => {
   const { t } = useTranslation();
   const [drawType, setDrawType] = useState("");
   const [selectedIds, setSelectedIds] = useState([]);
@@ -70,6 +70,11 @@ const PolygonMenu = () => {
   // ✅ عند الضغط على زر رسم
   const handleSelect = (type) => {
     setDrawType(type);
+    if (onDrawSelect) {
+      if (onDrawSelect(type) === false) return;
+      handleClose();
+      return;
+    }
     const event = new CustomEvent("start-drawing", { detail: { type } });
     window.dispatchEvent(event);
     handleClose();

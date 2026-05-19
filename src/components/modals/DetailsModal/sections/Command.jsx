@@ -154,6 +154,8 @@ const Command = ({ deviceID, deviceSettings, refetch }) => {
         { value: "SENALM,ON,3#", label: "تفعيل تنبيه الاهتزاز (GPRS+PHONE)" },
         { value: "SENALM,FULL,1#", label: "تفعيل كامل (يعمل حتى مع ACC ON)" },
         { value: "SENALM,OFF#", label: "إيقاف تنبيه الاهتزاز" },
+
+        
         { value: "SENALM#", label: "استعلام إعدادات تنبيه الاهتزاز" },
         { value: "SENLEVEL,1#", label: "حساسية الاهتزاز: 1 (أعلى حساسية)" },
         { value: "SENLEVEL,3#", label: "حساسية الاهتزاز: 3" },

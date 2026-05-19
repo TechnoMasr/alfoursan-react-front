@@ -23,7 +23,16 @@
     "roadmap": "خريطة عادية",
     "satellite": "قمر صناعي",
     "terrain": "تضاريس",
-    "hybrid": "هجين"
+    "hybrid": "هجين",
+    "mtStreets": "شوارع (Streets)",
+    "mtSatellite": "قمر صناعي (Satellite Plain)",
+    "mtHybrid": "هجين (Satellite Hybrid)",
+    "mtOutdoor": "خارجية (Outdoor)",
+    "mtTopo": "تضاريس (Topo)",
+    "mtBasic": "أساسية (Basic)",
+    "mtBright": "مشرقة (Bright)",
+    "mtWinter": "شتاء (Winter)",
+    "mtDataviz": "بيانات (Dataviz)"
   },
   "imageUploader": {
     "uploadImage": "رفع صورة",
@@ -110,11 +119,16 @@
     "cluster": "تجميع"
   },
   "mapActions": {
-    "drawingGoogleOnly": "الرسم متاح في خريطة Google فقط ✅",
+    "drawingGoogleTitle": "الرسم متاح على خرائط Google",
+    "drawingGoogleBody": "لرسم أو تعديل السياجات الجغرافية، انتقل إلى خرائط Google من قائمة تبديل الخريطة أعلاه.",
+    "switchToGoogle": "الانتقال إلى Google Maps",
+    "drawingGoogleOnly": "الرسم متاح في خريطة Google فقط",
     "alarmPoolTitle": "سجل التنبيهات",
     "alarmPoolClear": "مسح الكل",
     "alarmPoolEmpty": "لا توجد تنبيهات في هذه الجلسة",
-    "alarmPoolKmh": "كم/س"
+    "alarmPoolKmh": "كم/س",
+    "alarmPopupOn": "إيقاف الإشعارات المنبثقة",
+    "alarmPopupOff": "تشغيل الإشعارات المنبثقة"
   },
   "alarmToast": {
     "car": "السيارة",
@@ -309,7 +323,11 @@
   },
   "mapSwitcher": {
     "googleMaps": "خرائط جوجل",
-    "mapbox": "Mapbox"
+    "mapbox": "Mapbox",
+    "mapboxNotAvailable": "Mapbox غير متاح حالياً",
+    "openStreetMap": "OpenStreetMap",
+    "mapLibre": "MapLibre",
+    "mapTiler": "MapTiler"
   },
   "membership": {
     "tableHeaders": {

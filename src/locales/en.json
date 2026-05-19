@@ -41,7 +41,16 @@
     "roadmap": "Roadmap",
     "satellite": "Satellite",
     "terrain": "Terrain",
-    "hybrid": "Hybrid"
+    "hybrid": "Hybrid",
+    "mtStreets": "Streets",
+    "mtSatellite": "Satellite Plain",
+    "mtHybrid": "Satellite Hybrid",
+    "mtOutdoor": "Outdoor",
+    "mtTopo": "Topo",
+    "mtBasic": "Basic",
+    "mtBright": "Bright",
+    "mtWinter": "Winter",
+    "mtDataviz": "Data Visualization"
   },
   "imageUploader": {
     "uploadImage": "Upload Image",
@@ -70,7 +79,11 @@
   },
   "mapSwitcher": {
     "googleMaps": "Google Maps",
-    "mapbox": "Mapbox"
+    "mapbox": "Mapbox",
+    "mapboxNotAvailable": "Mapbox is not available at the moment",
+    "openStreetMap": "OpenStreetMap",
+    "mapLibre": "MapLibre",
+    "mapTiler": "MapTiler"
   },
 
   "maintenance": {
@@ -265,11 +278,16 @@
     "cluster": "Cluster"
   },
   "mapActions": {
-    "drawingGoogleOnly": "Drawing is only available on Google map ✅",
+    "drawingGoogleTitle": "Drawing requires Google Maps",
+    "drawingGoogleBody": "To draw or edit geofences, switch to Google Maps using the map switcher above.",
+    "switchToGoogle": "Switch to Google Maps",
+    "drawingGoogleOnly": "Drawing is only available on Google Maps",
     "alarmPoolTitle": "Alarm log",
     "alarmPoolClear": "Clear all",
     "alarmPoolEmpty": "No alarms in this session",
-    "alarmPoolKmh": "km/h"
+    "alarmPoolKmh": "km/h",
+    "alarmPopupOn": "Disable popup alerts",
+    "alarmPopupOff": "Enable popup alerts"
   },
   "alarmToast": {
     "car": "Car",

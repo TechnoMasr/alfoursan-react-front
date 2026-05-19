@@ -3,18 +3,29 @@ import { MdLayers } from "react-icons/md";
 import { useDispatch, useSelector } from "react-redux";
 import { setMapType } from "../../store/mapSlice";
 import { useTranslation } from "react-i18next";
+import { useMemo } from "react";
+import { MAPTILER_MAP_TYPES } from "../../pages/TenantDashboard/Maps/mapTilerStyles";
 
 const MapTypes = ({ onChange }) => {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const { mapType } = useSelector((state) => state.map);
+  const { mapType, provider } = useSelector((state) => state.map);
 
-  const mapTypes = [
-    { label: t("mapTypes.roadmap"), value: "roadmap" },
-    { label: t("mapTypes.satellite"), value: "satellite" },
-    { label: t("mapTypes.terrain"), value: "terrain" },
-    { label: t("mapTypes.hybrid"), value: "hybrid" },
-  ];
+  const mapTypes = useMemo(() => {
+    if (provider === "maptiler") {
+      return MAPTILER_MAP_TYPES.map((item) => ({
+        label: t(item.labelKey),
+        value: item.id,
+      }));
+    }
+
+    return [
+      { label: t("mapTypes.roadmap"), value: "roadmap" },
+      { label: t("mapTypes.satellite"), value: "satellite" },
+      { label: t("mapTypes.terrain"), value: "terrain" },
+      { label: t("mapTypes.hybrid"), value: "hybrid" },
+    ];
+  }, [provider, t]);
 
   const handleMapTypeChange = (type) => {
     if (onChange) {
@@ -34,7 +45,7 @@ const MapTypes = ({ onChange }) => {
 
       <DropdownMenu.Portal>
         <DropdownMenu.Content
-          className="bg-white shadow-xl rounded-lg p-2 flex flex-col gap-2 z-50"
+          className="bg-white shadow-xl rounded-lg p-2 flex flex-col gap-2 z-50 max-h-[70vh] overflow-y-auto"
           side="left"
           align="start"
           sideOffset={5}

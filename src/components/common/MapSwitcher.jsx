@@ -3,6 +3,10 @@ import { FiMap } from "react-icons/fi";
 import { useDispatch, useSelector } from "react-redux";
 import { switchMap } from "../../store/mapSlice";
 import { useTranslation } from "react-i18next";
+import { toast } from "react-toastify";
+
+/** من index.html — window.__MAPBOX_ENABLED__ */
+const MAPBOX_ENABLED = window.__MAPBOX_ENABLED__ === true;
 
 const MapSwitcher = () => {
   const { t } = useTranslation();
@@ -40,10 +44,53 @@ const MapSwitcher = () => {
               mapProvider === "mapbox"
                 ? "bg-mainColor text-white"
                 : "hover:bg-mainColor/10 hover:text-mainColor"
-            }`}
-            onSelect={() => dispatch(switchMap("mapbox"))}
+            } ${!MAPBOX_ENABLED ? "opacity-60" : ""}`}
+            onSelect={(e) => {
+              if (!MAPBOX_ENABLED) {
+                e.preventDefault();
+                toast.warning(t("mapSwitcher.mapboxNotAvailable"));
+                return;
+              }
+              dispatch(switchMap("mapbox"));
+            }}
           >
             {t("mapSwitcher.mapbox")}
+          </DropdownMenu.Item>
+
+
+
+
+          <DropdownMenu.Item
+            className={`px-3 py-1 rounded cursor-pointer text-sm ${
+              mapProvider === "openstreetmap"
+                ? "bg-mainColor text-white"
+                : "hover:bg-mainColor/10 hover:text-mainColor"
+            }`}
+            onSelect={() => dispatch(switchMap("openstreetmap"))}
+          >
+            {t("mapSwitcher.openStreetMap")}
+          </DropdownMenu.Item>
+
+          <DropdownMenu.Item
+            className={`px-3 py-1 rounded cursor-pointer text-sm ${
+              mapProvider === "maplibre"
+                ? "bg-mainColor text-white"
+                : "hover:bg-mainColor/10 hover:text-mainColor"
+            }`}
+            onSelect={() => dispatch(switchMap("maplibre"))}
+          >
+            {t("mapSwitcher.mapLibre")}
+          </DropdownMenu.Item>
+
+          <DropdownMenu.Item
+            className={`px-3 py-1 rounded cursor-pointer text-sm ${
+              mapProvider === "maptiler"
+                ? "bg-mainColor text-white"
+                : "hover:bg-mainColor/10 hover:text-mainColor"
+            }`}
+            onSelect={() => dispatch(switchMap("maptiler"))}
+          >
+            {t("mapSwitcher.mapTiler")}
           </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>

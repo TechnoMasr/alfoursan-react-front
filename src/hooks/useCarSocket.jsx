@@ -8,6 +8,8 @@ import { toast } from "sonner";
 import { setCommandResponse } from "../store/modalsSlice";
 import { pushAlarmEntry } from "../utils/alarmPool";
 import { copyToClipboard } from "../utils/copyToClipboard";
+import { requestAlarmGoToMap } from "../utils/alarmGoToMap";
+import AlarmGoToMapButton from "../components/common/AlarmGoToMapButton";
 
 /* ─────────────────────────────────────────────
    Alarm Toast UI  (Sonner rich-content version)
@@ -149,34 +151,7 @@ const AlarmToast = ({
           </div>
 
           {/* Go to map button */}
-          {showGoToMap && (
-            <button
-              type="button"
-              onClick={onGoToMap}
-              className="w-full flex items-center justify-center gap-2 rounded-xl bg-mainColor text-white text-xs font-bold py-2 px-3 shadow shadow-mainColor/20 hover:brightness-110 active:scale-[0.99] transition-all"
-            >
-              <svg
-                className="w-4 h-4 shrink-0"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-                />
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-                />
-              </svg>
-              {t("alarmToast.goToMap", "اذهب للخريطة")}
-            </button>
-          )}
+          {showGoToMap && <AlarmGoToMapButton onClick={onGoToMap} />}
         </div>
       </div>
     </div>
@@ -188,7 +163,9 @@ const AlarmToast = ({
 ───────────────────────────────────────────── */
 const useCarSocket = (cars, setCars, isInit, options = {}) => {
   const dispatch = useDispatch();
-  const { notificationSound } = useSelector((state) => state.map);
+  const { notificationSound, alarmPopupEnabled } = useSelector(
+    (state) => state.map,
+  );
   const { detailsModal } = useSelector((state) => state.modals);
 
   const enabled = options?.enabled ?? true;
@@ -200,6 +177,7 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
 
   const alarmAudioRef = useRef(null);
   const notificationSoundRef = useRef(notificationSound);
+  const alarmPopupEnabledRef = useRef(alarmPopupEnabled);
   const detailsModalRef = useRef(detailsModal);
   const onAlarmSelectCarRef = useRef(onAlarmSelectCar);
   const wsRef = useRef(null);
@@ -211,6 +189,9 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
   useEffect(() => {
     notificationSoundRef.current = notificationSound;
   }, [notificationSound]);
+  useEffect(() => {
+    alarmPopupEnabledRef.current = alarmPopupEnabled;
+  }, [alarmPopupEnabled]);
   useEffect(() => {
     detailsModalRef.current = detailsModal;
   }, [detailsModal]);
@@ -526,42 +507,47 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
 
         pushAlarmEntry({
           imei,
+          carId: car?.id,
           carName: alarmCarName,
           alarmText,
           speed: alarmSpeed,
           date: alarmDate,
         });
 
-        // ✅ Sonner toast.custom() بدل react-toastify
-        const alarmToastId = `alarm-${Date.now()}-${String(imei).replace(/\W/g, "")}`;
+        const goToMapHandler = () => {
+          const fn = onAlarmSelectCarRef.current;
+          const c = carsRef.current.find(
+            (x) => String(x?.serial_number) === String(imei),
+          );
+          if (fn && c) fn(c, true);
+          else requestAlarmGoToMap({ imei, carId: car?.id ?? c?.id });
+        };
 
-        toast.custom(
-          (t) => (
-            <AlarmToast
-              toastId={t}
-              carName={alarmCarName}
-              speed={alarmSpeed}
-              alarm={alarmText}
-              IMEI={imei}
-              showGoToMap={typeof onAlarmSelectCarRef.current === "function"}
-              onGoToMap={() => {
-                const fn = onAlarmSelectCarRef.current;
-                if (!fn) return;
-                const c = carsRef.current.find(
-                  (x) => String(x?.serial_number) === String(imei),
-                );
-                if (c) fn(c, true);
-                toast.dismiss(alarmToastId);
-              }}
-            />
-          ),
-          {
-            id: alarmToastId,
-            duration: 15000,
-            // ✅ كل إشعار يظهر فوق السابق (stack) بدل ما يملى الشاشة
-            position: "bottom-right",
-          },
-        );
+        if (alarmPopupEnabledRef.current) {
+          const alarmToastId = `alarm-${Date.now()}-${String(imei).replace(/\W/g, "")}`;
+
+          toast.custom(
+            (t) => (
+              <AlarmToast
+                toastId={t}
+                carName={alarmCarName}
+                speed={alarmSpeed}
+                alarm={alarmText}
+                IMEI={imei}
+                showGoToMap
+                onGoToMap={() => {
+                  goToMapHandler();
+                  toast.dismiss(alarmToastId);
+                }}
+              />
+            ),
+            {
+              id: alarmToastId,
+              duration: 15000,
+              position: "bottom-right",
+            },
+          );
+        }
       }
 
       /* ══════════ HEARTBEAT ══════════ */

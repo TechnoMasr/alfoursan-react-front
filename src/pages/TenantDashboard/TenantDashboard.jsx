@@ -4,6 +4,10 @@ import "mapbox-gl/dist/mapbox-gl.css";
 import SideMenu from "./SideMenu/SideMenu";
 import GoogleMapView from "./Maps/GoogleMapView";
 import MapboxMapView from "./Maps/MapboxMapView";
+import OpenStreetMapView from "./Maps/OpenStreetMapView";
+import MapLibreMapView from "./Maps/MapLibreMapView";
+import MapTilerMapView from "./Maps/MapTilerMapView";
+import { getMapTilerApiKey } from "./Maps/mapTilerConfig";
 import { useQuery } from "@tanstack/react-query";
 import useCarSocket from "../../hooks/useCarSocket";
 import LoadingPage from "../../components/Loading/LoadingPage";
@@ -18,6 +22,9 @@ import AssociateDevice from "../../components/modals/AssociateDevice";
 import SupportModal from "../../components/modals/SupportModal";
 import { changeZoom } from "../../store/mapSlice";
 import { useTranslation } from "react-i18next";
+import { takePendingGoogleDraw } from "../../utils/pendingGoogleDraw";
+
+const VECTOR_MAP_PROVIDERS = ["mapbox", "maplibre", "maptiler"];
 
 // ✅ ثابت خارج الـ component لمنع إعادة تحميل Google Maps
 const libraries = ["drawing", "geometry", "marker"];
@@ -185,9 +192,53 @@ const TenantDashboard = () => {
     zoom: 7,
   });
 
-  // ✅ مزامنة zoom القادم من Redux مع Mapbox viewState
+  const prevMapProviderRef = useRef(mapProvider);
+  const viewStateRef = useRef(viewState);
+  const centerRef = useRef(center);
+  viewStateRef.current = viewState;
+  centerRef.current = center;
+
+  // ✅ عند التبديل من Mapbox/MapLibre/MapTiler إلى Google: مزامنة المركز والتكبير
   useEffect(() => {
-    if (mapProvider !== "mapbox") return;
+    const prev = prevMapProviderRef.current;
+    prevMapProviderRef.current = mapProvider;
+    if (prev === mapProvider) return;
+
+    if (
+      mapProvider === "google" &&
+      VECTOR_MAP_PROVIDERS.includes(prev)
+    ) {
+      const vs = viewStateRef.current;
+      if (Number.isFinite(vs.latitude) && Number.isFinite(vs.longitude)) {
+        setCenter({ lat: vs.latitude, lng: vs.longitude });
+      }
+      if (Number.isFinite(vs.zoom)) {
+        dispatch(changeZoom(Math.round(vs.zoom)));
+      }
+    }
+
+    if (
+      VECTOR_MAP_PROVIDERS.includes(mapProvider) &&
+      prev === "google"
+    ) {
+      const c = centerRef.current;
+      setViewState((v) => ({
+        ...v,
+        latitude: c.lat,
+        longitude: c.lng,
+        zoom,
+      }));
+    }
+  }, [mapProvider, zoom, dispatch]);
+
+  // ✅ مزامنة zoom القادم من Redux مع Mapbox / MapLibre / MapTiler viewState
+  useEffect(() => {
+    if (
+      mapProvider !== "mapbox" &&
+      mapProvider !== "maplibre" &&
+      mapProvider !== "maptiler"
+    )
+      return;
     setViewState((v) => (v.zoom === zoom ? v : { ...v, zoom }));
   }, [mapProvider, zoom]);
 
@@ -197,6 +248,21 @@ const TenantDashboard = () => {
     language: "ar",
     libraries,
   });
+
+  // ✅ بعد التبديل إلى Google: استئناف الرسم إن كان المستخدم قد طلبه من التنبيه
+  useEffect(() => {
+    if (mapProvider !== "google" || !isLoaded) return;
+    const drawType = takePendingGoogleDraw();
+    if (!drawType) return;
+
+    const timer = window.setTimeout(() => {
+      window.dispatchEvent(
+        new CustomEvent("start-drawing", { detail: { type: drawType } }),
+      );
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [mapProvider, isLoaded]);
 
   // 🧩 عند تحميل الأجهزة
   useEffect(() => {
@@ -248,6 +314,37 @@ const TenantDashboard = () => {
     });
   };
 
+  const getOsmAddress = async (lat, lng, cb) => {
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=ar`,
+        { headers: { "Accept-Language": "ar" } },
+      );
+      const data = await res.json();
+      if (data?.display_name) cb(data.display_name);
+      else cb(t("tenantDashboard.addressNotFound"));
+    } catch (err) {
+      console.error(err);
+      cb(t("tenantDashboard.addressError"));
+    }
+  };
+
+  const getMapTilerAddress = async (lat, lng, cb) => {
+    try {
+      const key = getMapTilerApiKey();
+      const res = await fetch(
+        `https://api.maptiler.com/geocoding/${lng},${lat}.json?key=${key}&language=ar`,
+      );
+      const data = await res.json();
+      const place = data?.features?.[0]?.place_name;
+      if (place) cb(place);
+      else cb(t("tenantDashboard.addressNotFound"));
+    } catch (err) {
+      console.error(err);
+      cb(t("tenantDashboard.addressError"));
+    }
+  };
+
   const getMapboxAddress = async (lat, lng, cb) => {
     try {
       const res = await fetch(
@@ -265,6 +362,19 @@ const TenantDashboard = () => {
   const onAlarmSelectCarFromSocket = useCallback((car, shouldZoom) => {
     handleSelectCarRef.current?.(car, shouldZoom);
   }, []);
+
+  useEffect(() => {
+    const handler = (e) => {
+      const { imei, carId } = e.detail || {};
+      const car =
+        (carId != null && cars.find((c) => c?.id === carId)) ||
+        (imei &&
+          cars.find((c) => String(c?.serial_number) === String(imei)));
+      if (car) handleSelectCarRef.current?.(car, true);
+    };
+    window.addEventListener("alarm-go-to-map", handler);
+    return () => window.removeEventListener("alarm-go-to-map", handler);
+  }, [cars]);
 
   // 🔌 WebSocket hook لتحديث العربيات (اتصال ثابت بدون socketRefresh)
   useCarSocket(cars, setCars, isInit, {
@@ -331,6 +441,13 @@ const TenantDashboard = () => {
         );
       };
       if (mapProvider === "google") getGoogleAddress(lat, lng, updateAddress);
+      else if (mapProvider === "maptiler")
+        getMapTilerAddress(lat, lng, updateAddress);
+      else if (
+        mapProvider === "openstreetmap" ||
+        mapProvider === "maplibre"
+      )
+        getOsmAddress(lat, lng, updateAddress);
       else getMapboxAddress(lat, lng, updateAddress);
     }
   }, [
@@ -370,7 +487,11 @@ const TenantDashboard = () => {
         setCenter(position);
         dispatch(changeZoom(18));
 
-        if (mapProvider === "mapbox") {
+        if (
+          mapProvider === "mapbox" ||
+          mapProvider === "maplibre" ||
+          mapProvider === "maptiler"
+        ) {
           setViewState({
             longitude: lng,
             latitude: lat,
@@ -408,7 +529,7 @@ const TenantDashboard = () => {
 
       <MapActions setViewState={setViewState} />
 
-      {mapProvider === "google" ? (
+      {mapProvider === "google" && (
         <GoogleMapView
           cars={filteredCars}
           center={center}
@@ -416,12 +537,40 @@ const TenantDashboard = () => {
           selectedCarId={selectedCarId}
           handleSelectCar={handleSelectCar}
         />
-      ) : (
+      )}
+      {mapProvider === "mapbox" && (
         <MapboxMapView
           cars={filteredCars}
           viewState={viewState}
           setViewState={setViewState}
           MAPBOX_TOKEN={MAPBOX_TOKEN}
+          selectedCarId={selectedCarId}
+          handleSelectCar={handleSelectCar}
+        />
+      )}
+      {mapProvider === "openstreetmap" && (
+        <OpenStreetMapView
+          cars={filteredCars}
+          center={center}
+          zoom={zoom}
+          selectedCarId={selectedCarId}
+          handleSelectCar={handleSelectCar}
+        />
+      )}
+      {mapProvider === "maplibre" && (
+        <MapLibreMapView
+          cars={filteredCars}
+          viewState={viewState}
+          setViewState={setViewState}
+          selectedCarId={selectedCarId}
+          handleSelectCar={handleSelectCar}
+        />
+      )}
+      {mapProvider === "maptiler" && (
+        <MapTilerMapView
+          cars={filteredCars}
+          viewState={viewState}
+          setViewState={setViewState}
           selectedCarId={selectedCarId}
           handleSelectCar={handleSelectCar}
         />

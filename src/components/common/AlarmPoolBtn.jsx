@@ -7,6 +7,8 @@ import {
   clearAlarmPool,
 } from "../../utils/alarmPool";
 import { copyToClipboard } from "../../utils/copyToClipboard";
+import { requestAlarmGoToMap } from "../../utils/alarmGoToMap";
+import AlarmGoToMapButton from "./AlarmGoToMapButton";
 
 const isPoolEnabled = () =>
   typeof window === "undefined" || window.__ALARM_POOL_ENABLED__ !== false;
@@ -104,10 +106,24 @@ const AlarmPoolBtn = () => {
                     </div>
                     <div className="flex justify-between text-[11px] text-gray-500">
                       <span>
-                        {row.speed != null ? `${row.speed} ${t("mapActions.alarmPoolKmh")}` : "—"}
+                        {row.speed != null
+                          ? `${row.speed} ${t("mapActions.alarmPoolKmh")}`
+                          : "—"}
                       </span>
-                      <span>{row.date || new Date(row.at).toLocaleString()}</span>
+                      <span>
+                        {row.date || new Date(row.at).toLocaleString()}
+                      </span>
                     </div>
+                    <AlarmGoToMapButton
+                      className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-mainColor text-white text-[11px] font-bold py-1.5 px-2 hover:brightness-110 transition-all"
+                      onClick={() => {
+                        requestAlarmGoToMap({
+                          imei: row.imei,
+                          carId: row.carId,
+                        });
+                        setOpen(false);
+                      }}
+                    />
                   </div>
                 ))
               )}
