@@ -458,7 +458,10 @@
     "comprehensive": "صيانة شاملة",
     "mileage": "الصيانة حسب المسافة",
     "date": "الصيانة حسب التاريخ",
-    "plannedMiles": "المسافة المحددة",
+    "plannedMiles": "المسافة المطلوبة من الآن (كم)",
+    "plannedMilesHint": "مثال: 5000 تعني قطع 5000 كم من لحظة الحفظ — يُحفظ العداد الحالي كأساس ويُحسب الحد = الأساس + 5000",
+    "currentOdometerHint": "العداد الحالي من GPS (للمرجع عند الإعداد)",
+    "reached": "تم الوصول",
     "notifications": "الإشعارات",
     "maintenanceReminder": "تذكير بالصيانة",
     "endUserReminder": "تذكير المستخدم النهائي",
@@ -470,11 +473,22 @@
     "deleting": "جارٍ الحذف...",
     "delete": "حذف",
     "noRecords": "لا توجد سجلات صيانة",
+    "statuses": {
+      "pending": "قادمة",
+      "already_warned": "تم التنبيه",
+      "done": "منتهية"
+    },
     "tableHeaders": {
       "number": "#",
       "type": "النوع",
-      "plannedTime": "الوقت المحدد",
-      "plannedMiles": "المسافة المحددة",
+      "plannedTime": "التاريخ",
+      "plannedMiles": "المسافة المطلوبة",
+      "baseline": "عند الإعداد",
+      "interval": "مطلوب قطعه",
+      "target": "حد التنبيه",
+      "traveled": "المقطوع",
+      "remaining": "المتبقي",
+      "progress": "التقدم",
       "status": "الحالة",
       "actions": "الإجراءات"
     }

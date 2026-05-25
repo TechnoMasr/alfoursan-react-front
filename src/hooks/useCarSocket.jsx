@@ -174,6 +174,13 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
   const onAlarmSelectCar = options?.onAlarmSelectCar;
   const debug = options?.debug ?? false;
   const tag = options?.tag ?? "CarSocket";
+  const tenantRoomFromWindow =
+    typeof window !== "undefined" ? window.__TENANT_ROOM__ : null;
+  const resolvedTenantRoom = options?.tenantRoom ?? tenantRoomFromWindow ?? null;
+  const useTenantRoom = Boolean(
+    (options?.useTenantRoom ?? false) && resolvedTenantRoom,
+  );
+  const tenantRoomRef = useRef(resolvedTenantRoom);
 
   const alarmAudioRef = useRef(null);
   const notificationSoundRef = useRef(notificationSound);
@@ -267,18 +274,41 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
     }
 
     if (!isInit) return;
-    if (!cars || cars.length === 0) return;
+    if (!useTenantRoom && (!cars || cars.length === 0)) return;
 
     emitStatus("connecting");
-    log("connecting...", { resetKey });
+    log("connecting...", { resetKey, useTenantRoom });
 
-    const ws = new WebSocket("wss://alfursantracking.com:2053");
+    const wsUrl =
+      (typeof window !== "undefined" && window.__WS_URL__) ||
+      "wss://alfursantracking.com/ws-backup/";
+    const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
     subscribedImeisRef.current = new Set();
     indexByImeiRef.current = new Map();
 
+    if (useTenantRoom) {
+      (carsRef.current || []).forEach((car, idx) => {
+        const imei = car?.serial_number;
+        if (imei) indexByImeiRef.current.set(imei, idx);
+      });
+    }
+
     ws.onopen = () => {
       emitStatus("open");
+      if (useTenantRoom) {
+        const room = tenantRoomRef.current;
+        if (!room) {
+          warn("tenant room missing (__TENANT_ROOM__)");
+          emitStatus("error", { reason: "missing_tenant_room" });
+          return;
+        }
+        ws.send(JSON.stringify({ type: "subscribe_tenant_room", room }));
+        log("subscribe_tenant_room =>", room);
+        emitStatus("ready", { tenantRoom: room, subscribedCount: 0 });
+        return;
+      }
+
       let subscribedCount = 0;
       (carsRef.current || []).forEach((car, idx) => {
         const imei = car?.serial_number;
@@ -313,7 +343,10 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
         return;
       }
 
-      log("<= message", data);
+      if (data?.type === "tenant_gps_update" && data.data) {
+        data = data.data;
+      }
+
 
       /* ══════════ GPS ══════════ */
       if (data.type === "gps" && (data.data?.imei || data.data?.serial)) {
@@ -653,10 +686,20 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
         log("cleanup");
       }
     };
-  }, [isInit, enabled, resetKey]);
+  }, [isInit, enabled, resetKey, useTenantRoom]);
 
-  // اشتراك في IMEIs الجديدة بدون reconnect
+  // tenant room: keep IMEI → index map in sync when fleet list changes (no per-device subscribe)
   useEffect(() => {
+    if (!useTenantRoom) return;
+    (cars || []).forEach((car, idx) => {
+      const imei = car?.serial_number;
+      if (imei) indexByImeiRef.current.set(imei, idx);
+    });
+  }, [cars, useTenantRoom]);
+
+  // اشتراك في IMEIs الجديدة بدون reconnect (device-level only)
+  useEffect(() => {
+    if (useTenantRoom) return;
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
@@ -670,7 +713,7 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
       ws.send(JSON.stringify({ type: "subscribe", imei }));
       log("subscribe (late) =>", imei);
     });
-  }, [cars?.length]);
+  }, [cars?.length, useTenantRoom]);
 
   return null;
 };

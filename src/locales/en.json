@@ -96,7 +96,10 @@
     "comprehensive": "Comprehensive Maintenance",
     "mileage": "Maintenance by Mileage",
     "date": "Maintenance by Date",
-    "plannedMiles": "Planned Miles",
+    "plannedMiles": "Distance from now (km)",
+    "plannedMilesHint": "e.g. 5000 means travel 5,000 km from save time — current odometer is stored as baseline; threshold = baseline + 5,000",
+    "currentOdometerHint": "Current GPS odometer (reference when creating a record)",
+    "reached": "Reached",
     "notifications": "Notifications",
     "maintenanceReminder": "Maintenance Reminder",
     "endUserReminder": "End User Reminder",
@@ -108,11 +111,22 @@
     "deleting": "Deleting...",
     "delete": "Delete",
     "noRecords": "No maintenance records available",
+    "statuses": {
+      "pending": "Upcoming",
+      "already_warned": "Alert sent",
+      "done": "Done"
+    },
     "tableHeaders": {
       "number": "#",
       "type": "Type",
-      "plannedTime": "Planned Time",
-      "plannedMiles": "Planned Miles",
+      "plannedTime": "Planned date",
+      "plannedMiles": "Interval",
+      "baseline": "At setup",
+      "interval": "To travel",
+      "target": "Threshold",
+      "traveled": "Traveled",
+      "remaining": "Remaining",
+      "progress": "Progress",
       "status": "Status",
       "actions": "Actions"
     }

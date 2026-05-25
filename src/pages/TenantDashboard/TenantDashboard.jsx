@@ -381,6 +381,7 @@ const TenantDashboard = () => {
     debug: true,
     tag: "TenantDashboard",
     onAlarmSelectCar: onAlarmSelectCarFromSocket,
+    useTenantRoom: true,
   });
 
   // 🧭 تحديث العنوان عند تحرك العربية
