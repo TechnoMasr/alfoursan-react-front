@@ -10,6 +10,12 @@ import { pushAlarmEntry } from "../utils/alarmPool";
 import { copyToClipboard } from "../utils/copyToClipboard";
 import { requestAlarmGoToMap } from "../utils/alarmGoToMap";
 import AlarmGoToMapButton from "../components/common/AlarmGoToMapButton";
+import {
+  mergeTelemetry,
+  pickSocketAttributes,
+  telemetryFromAttributes,
+  withStickyTelemetry,
+} from "../utils/deviceTelemetry";
 
 /* ─────────────────────────────────────────────
    Alarm Toast UI  (Sonner rich-content version)
@@ -370,11 +376,8 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
         const nextDir = data.data.direction ?? gps?.direction;
         const nextStatus = data.data.statusDecoded?.accOn ? "on" : "off";
 
-        const attrs =
-          data.data.attributes ??
-          data.data.traccar_raw?.attributes ??
-          data.data.legacy?.attributes ??
-          {};
+        const attrs = pickSocketAttributes(data);
+        const nextTelemetry = telemetryFromAttributes(attrs);
         const attrsTypeNum = Number(attrs?.type);
         const nextIgnition = normalizeBool(
           attrs?.ignition ??
@@ -427,6 +430,7 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
               nextIgnition === null ? car.ignition_on : nextIgnition;
             const motion = nextMotion === null ? car.motion : nextMotion;
             const charge = nextCharge === null ? car.charge : nextCharge;
+            const telemetry = mergeTelemetry(car, nextTelemetry);
 
             const samePos =
               car.position?.lat === nextPos.lat &&
@@ -437,28 +441,34 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
               (car.status ?? "") === nextStatus &&
               (car.ignition_on ?? null) === ignition_on &&
               (car.motion ?? null) === motion &&
-              (car.charge ?? null) === charge;
+              (car.charge ?? null) === charge &&
+              (car.power ?? null) === (telemetry.power ?? null) &&
+              (car.battery ?? null) === (telemetry.battery ?? null) &&
+              (car.batteryLevel ?? null) === (telemetry.batteryLevel ?? null);
 
             if (samePos && sameMeta) return car;
 
-            return {
-              ...car,
-              position: nextPos,
-              speed: nextSpeed,
-              direction: nextDir,
-              status: nextStatus,
-              ignition_on,
-              motion,
-              charge,
-              lastUpdate: Date.now(),
-              lastSignel: dateValue ?? car.lastSignel,
-              lastSignelGPS: shouldUpdateLastSignelGPS
-                ? dateValue ?? car.lastSignelGPS
-                : car.lastSignelGPS,
-              lastGpsAtMs: shouldUpdateLastSignelGPS
-                ? incomingMs ?? Date.now()
-                : car.lastGpsAtMs,
-            };
+            return withStickyTelemetry(
+              {
+                ...car,
+                position: nextPos,
+                speed: nextSpeed,
+                direction: nextDir,
+                status: nextStatus,
+                ignition_on,
+                motion,
+                charge,
+                lastUpdate: Date.now(),
+                lastSignel: dateValue ?? car.lastSignel,
+                lastSignelGPS: shouldUpdateLastSignelGPS
+                  ? dateValue ?? car.lastSignelGPS
+                  : car.lastSignelGPS,
+                lastGpsAtMs: shouldUpdateLastSignelGPS
+                  ? incomingMs ?? Date.now()
+                  : car.lastGpsAtMs,
+              },
+              nextTelemetry,
+            );
           };
 
           if (idx < 0) {
@@ -485,11 +495,8 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
         const imei = data.data.imei;
         const car = carsRef.current.find((c) => c.serial_number === imei);
 
-        const attrs =
-          data.data.attributes ??
-          data.data.traccar_raw?.attributes ??
-          data.data.legacy?.attributes ??
-          {};
+        const attrs = pickSocketAttributes(data);
+        const nextTelemetry = telemetryFromAttributes(attrs);
         const nextIgnition = normalizeBool(
           attrs?.ignition ??
             data.data.ignition ??
@@ -504,10 +511,12 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
           attrs?.charge ?? data.data.charge ?? null,
         );
 
+        const hasTelemetry = Object.keys(nextTelemetry).length > 0;
         if (
           nextIgnition !== null ||
           nextMotion !== null ||
-          nextCharge !== null
+          nextCharge !== null ||
+          hasTelemetry
         ) {
           setCars((prev) => {
             const idx = prev.findIndex((c) => c?.serial_number === imei);
@@ -515,14 +524,17 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
             const existing = prev[idx];
             if (!existing) return prev;
             const next = prev.slice();
-            next[idx] = {
-              ...existing,
-              ignition_on:
+            next[idx] = withStickyTelemetry(
+              {
+                ...existing,
+                ignition_on:
                 nextIgnition === null ? existing.ignition_on : nextIgnition,
               motion: nextMotion === null ? existing.motion : nextMotion,
-              charge: nextCharge === null ? existing.charge : nextCharge,
-              lastUpdate: Date.now(),
-            };
+                charge: nextCharge === null ? existing.charge : nextCharge,
+                lastUpdate: Date.now(),
+              },
+              nextTelemetry,
+            );
             return next;
           });
         }

@@ -9,6 +9,10 @@
     "stopped": "ثابتة",
     "charging": "شحن",
     "notCharging": "غير شاحن",
+    "powerBattery": "الطاقة والبطارية",
+    "externalPower": "طاقة خارجية (power)",
+    "internalBattery": "بطارية (battery)",
+    "batteryLevel": "مستوى البطارية",
     "details": "التفاصيل",
     "tracking": "تتبع",
     "playback": "إعادة التشغيل",
@@ -92,7 +96,8 @@
     "fence": "سياج",
     "streetView": "عرض الشارع",
     "reports": "تقارير",
-    "share": "مشاركة"
+    "share": "مشاركة",
+    "powerVoltage": "طاقة خارجية: {{value}} V"
   },
   "search": {
     "placeholder": "بحث ...",

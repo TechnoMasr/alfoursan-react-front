@@ -8,6 +8,7 @@ import { getTrackingDevice } from "../../services/monitorServices";
 import useCarSocket from "../../hooks/useCarSocket";
 import { carPath } from "../../services/carPath";
 import { getCarStatus } from "../../utils/getCarStatus";
+import { telemetryFromMongo } from "../../utils/deviceTelemetry";
 import { useTranslation } from "react-i18next";
 import AlarmPoolBtn from "../../components/common/AlarmPoolBtn";
 
@@ -51,7 +52,7 @@ const DeviceTracking = () => {
   useEffect(() => {
     const device = data || null;
     if (!device) return;
-    const status = device.device_status;
+    const status = device.device_status ?? device.deviceStatus ?? null;
     const lat = Number(status?.last_lat);
     const lng = Number(status?.last_lon);
     const position =
@@ -69,6 +70,10 @@ const DeviceTracking = () => {
       position,
       speed: Number(status?.last_speed) || 0,
       direction: Number(status?.last_direction) || 0,
+      charge: status?.charge ?? device.charge ?? null,
+      ignition_on: status?.ignition_on ?? device.ignition_on ?? null,
+      motion: status?.motion ?? device.motion ?? null,
+      ...telemetryFromMongo(status),
       lastSignel: status?.last_packet_at || status?.last_activity_at,
       lastSignelGPS: status?.last_gps_at,
       voltageLevel:

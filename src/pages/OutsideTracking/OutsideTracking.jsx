@@ -17,6 +17,7 @@ import {
 import { toast } from "react-toastify";
 import { carPath } from "../../services/carPath";
 import { getCarStatus } from "../../utils/getCarStatus";
+import { telemetryFromMongo } from "../../utils/deviceTelemetry";
 import { useTranslation } from "react-i18next";
 
 const containerStyle = { width: "100%", height: "100vh" };
@@ -81,7 +82,7 @@ const OutsideTracking = () => {
   // init from API
   useEffect(() => {
     const device = data?.device;
-    const status = device?.device_status;
+    const status = device?.device_status ?? device?.deviceStatus ?? null;
     if (!device || !status) return;
 
     const lat = Number(status.last_lat);
@@ -101,6 +102,10 @@ const OutsideTracking = () => {
       position,
       speed: Number(status.last_speed) || 0,
       direction: Number(status.last_direction) || 0,
+      charge: status?.charge ?? device.charge ?? null,
+      ignition_on: status?.ignition_on ?? device.ignition_on ?? null,
+      motion: status?.motion ?? device.motion ?? null,
+      ...telemetryFromMongo(status),
       lastSignel: status.last_packet_at || status.last_activity_at,
       lastSignelGPS: status.last_gps_at,
       voltageLevel:

@@ -9,6 +9,7 @@ import { memo, useEffect, useMemo, useRef } from "react";
 import { useDispatch } from "react-redux";
 import Loader from "../../../../components/Loading/Loader";
 import { getCarStatus } from "../../../../utils/getCarStatus";
+import { parseTelemetryNumber } from "../../../../utils/deviceTelemetry";
 import { Link } from "react-router-dom";
 import { MdOutlinePowerSettingsNew } from "react-icons/md";
 import { useTranslation } from "react-i18next";
@@ -41,6 +42,13 @@ const CarRow = memo(function CarRow({
 
   const lat = car?.position?.lat;
   const lng = car?.position?.lng;
+  const powerV = parseTelemetryNumber(car?.power);
+  const powerLabel =
+    powerV != null
+      ? Number.isInteger(powerV) || powerV >= 10
+        ? String(Math.round(powerV))
+        : powerV.toFixed(1)
+      : null;
 
   return (
     <div
@@ -75,7 +83,15 @@ const CarRow = memo(function CarRow({
           >
             <MdOutlinePowerSettingsNew />
           </span>
-          <span className="line-clamp-1">{car.name}</span>
+          <span className="line-clamp-1 min-w-0">{car.name}</span>
+          {powerLabel != null && (
+            <span
+              className="shrink-0 inline-flex h-5 w-5 items-center justify-center rounded-full border border-amber-300/90 bg-amber-50 text-[9px] font-bold leading-none text-amber-900 tabular-nums shadow-sm"
+              title={t("carsList.powerVoltage", { value: powerLabel })}
+            >
+              {powerLabel} v
+            </span>
+          )}
         </span>
         <span>{status}</span>
       </div>

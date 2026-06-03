@@ -9,6 +9,10 @@
     "stopped": "Stopped",
     "charging": "Charging",
     "notCharging": "Not Charging",
+    "powerBattery": "Power & battery",
+    "externalPower": "External power",
+    "internalBattery": "Battery voltage",
+    "batteryLevel": "Battery level",
     "details": "Details",
     "tracking": "Tracking",
     "playback": "Playback",
@@ -265,7 +269,8 @@
     "fence": "Fence",
     "streetView": "Street View",
     "reports": "Reports",
-    "share": "Share"
+    "share": "Share",
+    "powerVoltage": "External power: {{value}} V"
   },
   "search": {
     "placeholder": "Search ...",

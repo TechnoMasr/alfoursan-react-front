@@ -35,6 +35,7 @@ import { Link } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { GiPathDistance } from "react-icons/gi";
+import { formatTelemetryDisplay } from "../../utils/deviceTelemetry";
 
 const CarPopup = ({ car, showActions = true }) => {
   const { t } = useTranslation();
@@ -102,18 +103,6 @@ const CarPopup = ({ car, showActions = true }) => {
       ),
     },
     { label: car.iccid, icon: `iccid`, colSpan: 2 },
-    {
-      label: formatBoolLabel(
-        car?.charge,
-        t("carPopup.charging"),
-        t("carPopup.notCharging"),
-      ),
-      icon: (
-        <MdOutlineElectricBolt
-          style={{ color: car?.charge ? "#f59e0b" : "#9ca3af" }}
-        />
-      ),
-    },
     { label: car.contact_person, icon: <FaUser /> },
     { label: car.contact_phone, icon: <PiPhoneCall /> },
     {
@@ -160,6 +149,65 @@ const CarPopup = ({ car, showActions = true }) => {
               </p>
             </div>
           ))}
+        </div>
+      </div>
+
+      <div className="px-4 pb-2">
+        <div className="rounded-xl border border-amber-100/80 bg-gradient-to-l from-amber-50/60 to-white px-3 py-2 shadow-sm">
+          <p className="text-[10px] font-semibold text-slate-500 mb-1.5">
+            {t("carPopup.powerBattery")}
+          </p>
+          <div className="grid grid-cols-3 gap-1.5 text-[11px]">
+            <div className="rounded-lg border border-slate-100 bg-white/90 px-2 py-1.5">
+              <span className="text-slate-400 block text-[10px]">
+                {t("carPopup.externalPower")}
+              </span>
+              <span className="font-bold text-slate-800 tabular-nums">
+                {formatTelemetryDisplay(
+                  "power",
+                  car?.power,
+                  t("carPopup.noData"),
+                )}
+              </span>
+            </div>
+            <div className="rounded-lg border border-slate-100 bg-white/90 px-2 py-1.5">
+              <span className="text-slate-400 block text-[10px]">
+                {t("carPopup.internalBattery")}
+              </span>
+              <span className="font-bold text-slate-800 tabular-nums">
+                {formatTelemetryDisplay(
+                  "battery",
+                  car?.battery,
+                  t("carPopup.noData"),
+                )}
+              </span>
+            </div>
+            <div className="rounded-lg border border-slate-100 bg-white/90 px-2 py-1.5">
+              <span className="text-slate-400 block text-[10px]">
+                {t("carPopup.batteryLevel")}
+              </span>
+              <span className="font-bold text-slate-800 tabular-nums">
+                {formatTelemetryDisplay(
+                  "batteryLevel",
+                  car?.batteryLevel,
+                  t("carPopup.noData"),
+                )}
+              </span>
+            </div>
+          </div>
+          <div className="mt-1.5 flex items-center gap-1.5 rounded-lg border border-slate-100 bg-white/90 px-2 py-1">
+            <MdOutlineElectricBolt
+              className="text-base shrink-0"
+              style={{ color: car?.charge ? "#f59e0b" : "#9ca3af" }}
+            />
+            <span className="text-[11px] font-medium text-slate-700">
+              {formatBoolLabel(
+                car?.charge,
+                t("carPopup.charging"),
+                t("carPopup.notCharging"),
+              )}
+            </span>
+          </div>
         </div>
       </div>
 

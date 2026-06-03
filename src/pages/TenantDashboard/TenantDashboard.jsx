@@ -10,6 +10,7 @@ import MapTilerMapView from "./Maps/MapTilerMapView";
 import { getMapTilerApiKey } from "./Maps/mapTilerConfig";
 import { useQuery } from "@tanstack/react-query";
 import useCarSocket from "../../hooks/useCarSocket";
+import { mergeTelemetry } from "../../utils/deviceTelemetry";
 import LoadingPage from "../../components/Loading/LoadingPage";
 import MapActions from "./MapActions/MapActions";
 import { useDispatch, useSelector } from "react-redux";
@@ -143,6 +144,9 @@ const TenantDashboard = () => {
         lastSignel: prev.lastSignel || incoming.lastSignel,
         lastSignelGPS: prev.lastSignelGPS || incoming.lastSignelGPS,
         lastGpsAtMs: prev.lastGpsAtMs || incoming.lastGpsAtMs,
+        ...mergeTelemetry(prev, incoming),
+        charge:
+          prevIsLive && prev.charge != null ? prev.charge : incoming.charge,
       });
     });
 
