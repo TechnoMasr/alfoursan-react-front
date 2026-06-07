@@ -14,11 +14,38 @@ export function isGoogleMapType(mapType) {
   return GOOGLE_MAP_TYPES.includes(mapType);
 }
 
+const MAP_PROVIDERS = [
+  "google",
+  "openstreetmap",
+  "mapbox",
+  "maplibre",
+  "maptiler",
+];
+
+function readStoredMapProvider() {
+  const provider = localStorage.getItem("mapProvider");
+  if (MAP_PROVIDERS.includes(provider)) return provider;
+  localStorage.setItem("mapProvider", "google");
+  return "google";
+}
+
+function readStoredMapType(provider) {
+  const mapType = localStorage.getItem("mapType");
+  if (provider === "google") {
+    if (isGoogleMapType(mapType)) return mapType;
+    localStorage.setItem("mapType", "roadmap");
+    return "roadmap";
+  }
+  return mapType || "roadmap";
+}
+
+const initialProvider = readStoredMapProvider();
+
 const initialState = {
-  provider: localStorage.getItem("mapProvider") || "google",
+  provider: initialProvider,
   clusters: false,
   showDeviceName: false,
-  mapType: localStorage.getItem("mapType") || "roadmap",
+  mapType: readStoredMapType(initialProvider),
   zoom: 7,
   notificationSound:
     localStorage.getItem("notificationSound") === "false" ? false : true,

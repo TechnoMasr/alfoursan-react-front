@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Component,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useLoadScript } from "@react-google-maps/api";
 import "mapbox-gl/dist/mapbox-gl.css";
 import SideMenu from "./SideMenu/SideMenu";
@@ -35,6 +42,57 @@ const VECTOR_MAP_PROVIDERS = ["mapbox", "maplibre", "maptiler"];
 // ✅ ثابت خارج الـ component لمنع إعادة تحميل Google Maps
 const libraries = ["drawing", "geometry", "marker"];
 const MAPBOX_TOKEN = "";
+
+class MapRuntimeErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+
+  componentDidCatch(error) {
+    console.error("[TenantDashboardMap]", error);
+  }
+
+  resetMapPreferences = () => {
+    localStorage.setItem("mapProvider", "google");
+    localStorage.setItem("mapType", "roadmap");
+    window.location.reload();
+  };
+
+  render() {
+    if (!this.state.error) return this.props.children;
+
+    return (
+      <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-50 p-4 text-center">
+        <div className="max-w-md rounded-2xl bg-white p-5 shadow-xl">
+          <h2 className="mb-2 text-lg font-bold text-slate-900">
+            حدث خطأ أثناء تحميل الخريطة
+          </h2>
+          <p className="mb-4 text-sm text-slate-600">
+            {this.state.error?.message || "تعذر تحميل مزود الخريطة الحالي."}
+          </p>
+          <button
+            type="button"
+            onClick={this.resetMapPreferences}
+            className="rounded-lg bg-mainColor px-4 py-2 text-sm font-bold text-white"
+          >
+            إعادة ضبط الخريطة
+          </button>
+        </div>
+      </div>
+    );
+  }
+}
 
 // 🧮 دالة حساب المسافة بين نقطتين (كم)
 function haversineDistance(lat1, lng1, lat2, lng2) {
@@ -551,57 +609,59 @@ const TenantDashboard = () => {
 
       <MapActions setViewState={setViewState} />
 
-      {mapProvider === "google" && (
-        <GoogleMapView
-          cars={filteredCars}
-          fleetVersion={fleetVersion}
-          center={center}
-          zoom={zoom}
-          selectedCarId={selectedCarId}
-          handleSelectCar={handleSelectCar}
-        />
-      )}
-      {mapProvider === "mapbox" && (
-        <MapboxMapView
-          cars={filteredCars}
-          fleetVersion={fleetVersion}
-          viewState={viewState}
-          setViewState={setViewState}
-          MAPBOX_TOKEN={MAPBOX_TOKEN}
-          selectedCarId={selectedCarId}
-          handleSelectCar={handleSelectCar}
-        />
-      )}
-      {mapProvider === "openstreetmap" && (
-        <OpenStreetMapView
-          cars={filteredCars}
-          fleetVersion={fleetVersion}
-          center={center}
-          zoom={zoom}
-          selectedCarId={selectedCarId}
-          handleSelectCar={handleSelectCar}
-        />
-      )}
-      {mapProvider === "maplibre" && (
-        <MapLibreMapView
-          cars={filteredCars}
-          fleetVersion={fleetVersion}
-          viewState={viewState}
-          setViewState={setViewState}
-          selectedCarId={selectedCarId}
-          handleSelectCar={handleSelectCar}
-        />
-      )}
-      {mapProvider === "maptiler" && (
-        <MapTilerMapView
-          cars={filteredCars}
-          fleetVersion={fleetVersion}
-          viewState={viewState}
-          setViewState={setViewState}
-          selectedCarId={selectedCarId}
-          handleSelectCar={handleSelectCar}
-        />
-      )}
+      <MapRuntimeErrorBoundary resetKey={mapProvider}>
+        {mapProvider === "google" && (
+          <GoogleMapView
+            cars={filteredCars}
+            fleetVersion={fleetVersion}
+            center={center}
+            zoom={zoom}
+            selectedCarId={selectedCarId}
+            handleSelectCar={handleSelectCar}
+          />
+        )}
+        {mapProvider === "mapbox" && (
+          <MapboxMapView
+            cars={filteredCars}
+            fleetVersion={fleetVersion}
+            viewState={viewState}
+            setViewState={setViewState}
+            MAPBOX_TOKEN={MAPBOX_TOKEN}
+            selectedCarId={selectedCarId}
+            handleSelectCar={handleSelectCar}
+          />
+        )}
+        {mapProvider === "openstreetmap" && (
+          <OpenStreetMapView
+            cars={filteredCars}
+            fleetVersion={fleetVersion}
+            center={center}
+            zoom={zoom}
+            selectedCarId={selectedCarId}
+            handleSelectCar={handleSelectCar}
+          />
+        )}
+        {mapProvider === "maplibre" && (
+          <MapLibreMapView
+            cars={filteredCars}
+            fleetVersion={fleetVersion}
+            viewState={viewState}
+            setViewState={setViewState}
+            selectedCarId={selectedCarId}
+            handleSelectCar={handleSelectCar}
+          />
+        )}
+        {mapProvider === "maptiler" && (
+          <MapTilerMapView
+            cars={filteredCars}
+            fleetVersion={fleetVersion}
+            viewState={viewState}
+            setViewState={setViewState}
+            selectedCarId={selectedCarId}
+            handleSelectCar={handleSelectCar}
+          />
+        )}
+      </MapRuntimeErrorBoundary>
 
       {/* 🔹 Modals */}
       {detailsModal.show && <DetailsModal />}
