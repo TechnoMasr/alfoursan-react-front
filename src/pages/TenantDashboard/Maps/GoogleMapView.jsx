@@ -7,9 +7,16 @@ import { openGeoFenceModal } from "../../../store/modalsSlice";
 import { changeZoom, isGoogleMapType } from "../../../store/mapSlice";
 import { carPath } from "../../../services/carPath";
 import { getCarStatus } from "../../../utils/getCarStatus";
+import {
+  getFleetLive,
+  mergeCarWithFleet,
+  subscribeFleet,
+} from "../../../utils/fleetPositionStore";
+import { computeAnimDurationDeg, easeOutCubic } from "../../../utils/positionAnimation";
 
 const GoogleMapView = ({
   cars,
+  fleetVersion = 0,
   center,
   zoom,
   selectedCarId,
@@ -23,8 +30,11 @@ const GoogleMapView = ({
   const markerLabelMetaRef = useRef(new Map());
   const pendingMarkerUpdatesRef = useRef(new Map());
   const markerRafRef = useRef(0);
-  const markerAnimRef = useRef(new Map()); // id -> { start, end, t0, dur }
+  const markerAnimRef = useRef(new Map());
   const markerAnimRafRef = useRef(0);
+  const geojsonFeaturesRef = useRef([]);
+  const clusterRefreshTimerRef = useRef(0);
+  const carsMetaRef = useRef([]);
 
   const {
     clusters,
@@ -33,7 +43,6 @@ const GoogleMapView = ({
   } = useSelector((state) => state.map);
 
   const googleMapTypeId = isGoogleMapType(mapType) ? mapType : "roadmap";
-
   const dispatch = useDispatch();
 
   const onLoad = useCallback((loadedMap) => {
@@ -42,38 +51,149 @@ const GoogleMapView = ({
 
   const getCarColor = useCallback((car) => getCarStatus(car).color, []);
 
-  const validCars = useMemo(() => {
-    const byId = new Map();
-    (cars || []).forEach((car) => {
-      const lat = car?.position?.lat;
-      const lng = car?.position?.lng;
-      const ok = typeof lat === "number" && typeof lng === "number" && !isNaN(lat) && !isNaN(lng);
-      if (!ok || car?.id == null) return;
-      byId.set(car.id, car); // dedupe by id (يمنع أي تكرار بالـ API/Socket)
-    });
-    return Array.from(byId.values());
+  const carIdsKey = useMemo(() => {
+    return (cars || [])
+      .map((c) => c?.id)
+      .filter((id) => id != null)
+      .sort((a, b) => a - b)
+      .join(",");
   }, [cars]);
 
-  // ✅ تحويل السيارات إلى GeoJSON features لـ Supercluster
-  const geojsonFeatures = useMemo(() => {
-    return validCars.map((car) => ({
+  const buildGeoJsonFeatures = useCallback((list) => {
+    const byId = new Map();
+    (list || []).forEach((car) => {
+      const merged = mergeCarWithFleet(car);
+      const lat = merged?.position?.lat;
+      const lng = merged?.position?.lng;
+      const ok =
+        typeof lat === "number" &&
+        typeof lng === "number" &&
+        !isNaN(lat) &&
+        !isNaN(lng);
+      if (!ok || merged?.id == null) return;
+      byId.set(merged.id, merged);
+    });
+    return Array.from(byId.values()).map((car) => ({
       type: "Feature",
-      properties: {
-        cluster: false,
-        carId: car.id,
-        car,
-      },
+      properties: { cluster: false, carId: car.id, car },
       geometry: {
         type: "Point",
         coordinates: [car.position.lng, car.position.lat],
       },
     }));
-  }, [validCars]);
+  }, []);
 
-  // ✅ إنشاء/تحديث Supercluster
+  const animateMarkerTo = useCallback((markers, id, pos) => {
+    const m = markers.get(id);
+    if (!m) return;
+    const cur = m.getPosition();
+    const curLat = cur && typeof cur.lat === "function" ? cur.lat() : null;
+    const curLng = cur && typeof cur.lng === "function" ? cur.lng() : null;
+    const same =
+      curLat != null &&
+      curLng != null &&
+      curLat === pos.lat &&
+      curLng === pos.lng;
+    if (same) return;
+
+    const now = performance.now();
+    const start =
+      curLat != null && curLng != null ? { lat: curLat, lng: curLng } : pos;
+    const end = pos;
+    const dur = computeAnimDurationDeg(start, end);
+
+    markerAnimRef.current.set(id, { start, end, t0: now, dur });
+
+    const tick = (t) => {
+      markerAnimRafRef.current = 0;
+      const anims = markerAnimRef.current;
+      if (!anims.size) return;
+
+      anims.forEach((a, carId) => {
+        const mm = markers.get(carId);
+        if (!mm) {
+          anims.delete(carId);
+          return;
+        }
+        const tt = Math.min(1, (t - a.t0) / a.dur);
+        const e = easeOutCubic(tt);
+        mm.setPosition({
+          lat: a.start.lat + (a.end.lat - a.start.lat) * e,
+          lng: a.start.lng + (a.end.lng - a.start.lng) * e,
+        });
+        if (tt >= 1) anims.delete(carId);
+      });
+
+      if (anims.size) {
+        markerAnimRafRef.current = requestAnimationFrame(tick);
+      }
+    };
+
+    if (!markerAnimRafRef.current) {
+      markerAnimRafRef.current = requestAnimationFrame(tick);
+    }
+  }, []);
+
+  const scheduleClusterRefresh = useCallback(() => {
+    if (clusterRefreshTimerRef.current) return;
+    clusterRefreshTimerRef.current = window.setTimeout(() => {
+      clusterRefreshTimerRef.current = 0;
+      if (map && window.google?.maps?.event) {
+        window.google.maps.event.trigger(map, "idle");
+      }
+    }, 200);
+  }, [map]);
+
+  const createRotatedMarker = useCallback(
+    (car, targetMap) => {
+      const merged = mergeCarWithFleet(car);
+      const color = getCarColor(merged);
+      const rotation = merged.direction || 0;
+      const marker = new window.google.maps.Marker({
+        position: merged.position,
+        map: targetMap,
+        icon: {
+          path: carPath,
+          fillColor: color,
+          fillOpacity: 1,
+          strokeColor: "#000",
+          strokeWeight: 0.7,
+          scale: 0.05,
+          rotation,
+          anchor: new window.google.maps.Point(156, 256),
+          labelOrigin: new window.google.maps.Point(156, 700),
+        },
+      });
+      marker.addListener("click", () => handleSelectCar(merged));
+      return marker;
+    },
+    [getCarColor, handleSelectCar],
+  );
+
+  const clearClusterMarkers = useCallback(() => {
+    clusterMarkersRef.current.forEach((m) => m.setMap(null));
+    clusterMarkersRef.current = [];
+  }, []);
+
   useEffect(() => {
-    if (!geojsonFeatures.length) return;
+    return () => {
+      if (markerRafRef.current) cancelAnimationFrame(markerRafRef.current);
+      if (markerAnimRafRef.current) cancelAnimationFrame(markerAnimRafRef.current);
+      if (clusterRefreshTimerRef.current) clearTimeout(clusterRefreshTimerRef.current);
+      markerRafRef.current = 0;
+      markerAnimRafRef.current = 0;
+      pendingMarkerUpdatesRef.current.clear();
+      clearClusterMarkers();
+      carMarkersRef.current.forEach((m) => m.setMap(null));
+      carMarkersRef.current.clear();
+    };
+  }, [clearClusterMarkers]);
 
+  useEffect(() => {
+    carsMetaRef.current = cars || [];
+  }, [cars]);
+
+  useEffect(() => {
     if (!superclusterRef.current) {
       superclusterRef.current = new Supercluster({
         radius: 60,
@@ -81,204 +201,114 @@ const GoogleMapView = ({
         minPoints: 3,
       });
     }
+    geojsonFeaturesRef.current = buildGeoJsonFeatures(carsMetaRef.current);
+    superclusterRef.current.load(geojsonFeaturesRef.current);
+    scheduleClusterRefresh();
+  }, [carIdsKey, buildGeoJsonFeatures, scheduleClusterRefresh]);
 
-    superclusterRef.current.load(geojsonFeatures);
-  }, [geojsonFeatures]);
-
-  // ✅ إنشاء ماركر باستخدام SVG path (يدعم الدوران مباشرة)
-  const createRotatedMarker = useCallback((car, targetMap) => {
-    const color = getCarColor(car);
-    const rotation = car.direction || 0;
-
-    const markerOptions = {
-      position: car.position,
-      map: targetMap,
-      icon: {
-        path: carPath,
-        fillColor: color,
-        fillOpacity: 1,
-        strokeColor: "#000",
-        strokeWeight: 0.7,
-        scale: 0.05,
-        rotation: rotation,
-        anchor: new window.google.maps.Point(156, 256),
-        labelOrigin: new window.google.maps.Point(156, 700),
-      },
-    };
-
-    const marker = new window.google.maps.Marker(markerOptions);
-    marker.addListener("click", () => handleSelectCar(car));
-
-    return marker;
-  }, [getCarColor, handleSelectCar]);
-
-  const clearClusterMarkers = useCallback(() => {
-    clusterMarkersRef.current.forEach((m) => m.setMap(null));
-    clusterMarkersRef.current = [];
-  }, []);
-
-  // ✅ Cleanup قوي عند unmount (يمنع double markers في React StrictMode/dev)
-  useEffect(() => {
-    return () => {
-      try {
-        if (markerRafRef.current) cancelAnimationFrame(markerRafRef.current);
-      } catch {
-        // ignore
-      }
-      markerRafRef.current = 0;
-      pendingMarkerUpdatesRef.current.clear();
-
-      try {
-        clearClusterMarkers();
-      } catch {
-        // ignore
-      }
-
-      try {
-        carMarkersRef.current.forEach((m) => m.setMap(null));
-        carMarkersRef.current.clear();
-      } catch {
-        // ignore
-      }
-    };
-  }, [clearClusterMarkers]);
-
-  // ✅ إنشاء/تحديث/حذف ماركرات العربيات (مرة واحدة كمصدر للحقيقة)
   useEffect(() => {
     if (!map || !window.google) return;
 
     const markers = carMarkersRef.current;
-    const currentIds = new Set(validCars.map((c) => c.id));
+    const list = carsMetaRef.current;
+    const currentIds = new Set(list.map((c) => c.id));
 
-    validCars.forEach((car) => {
+    list.forEach((car) => {
+      if (car?.id == null) return;
+      const merged = mergeCarWithFleet(car);
+      if (!merged.position) return;
+
       const existing = markers.get(car.id);
-      const color = getCarColor(car);
-      const rotation = car.direction || 0;
-
       if (!existing) {
-        const m = createRotatedMarker(car, map);
-        markers.set(car.id, m);
-      } else {
-        // ✅ اجمع تحديثات الـ position في RAF واحد لتقليل الوميض/الـ repaint
-        pendingMarkerUpdatesRef.current.set(car.id, car.position);
-        if (!markerRafRef.current) {
-          markerRafRef.current = requestAnimationFrame(() => {
-            markerRafRef.current = 0;
-            const pending = pendingMarkerUpdatesRef.current;
-            pendingMarkerUpdatesRef.current = new Map();
-            pending.forEach((pos, id) => {
-              const m = markers.get(id);
-              if (!m) return;
-              const cur = m.getPosition();
-              const curLat = cur && typeof cur.lat === "function" ? cur.lat() : null;
-              const curLng = cur && typeof cur.lng === "function" ? cur.lng() : null;
-              const same =
-                curLat != null &&
-                curLng != null &&
-                curLat === pos.lat &&
-                curLng === pos.lng;
-              if (same) return;
+        markers.set(car.id, createRotatedMarker(car, map));
+        return;
+      }
 
-              // ✅ حركة ناعمة: انيميشن خفيف بين النقطة الحالية والنقطة الجديدة
-              const now = performance.now();
-              const start =
-                curLat != null && curLng != null ? { lat: curLat, lng: curLng } : pos;
-              const end = pos;
-              const dLat = end.lat - start.lat;
-              const dLng = end.lng - start.lng;
-              const dist = Math.sqrt(dLat * dLat + dLng * dLng);
-              // مدة بسيطة (clamp) — هدفنا "نعومة قليلة" بدون lag كبير
-              const dur = Math.max(250, Math.min(900, dist * 120000)); // dist بالدرجات تقريبًا
-
-              markerAnimRef.current.set(id, { start, end, t0: now, dur });
-
-              const tick = (t) => {
-                markerAnimRafRef.current = 0;
-                const anims = markerAnimRef.current;
-                if (!anims.size) return;
-
-                anims.forEach((a, carId) => {
-                  const mm = markers.get(carId);
-                  if (!mm) {
-                    anims.delete(carId);
-                    return;
-                  }
-                  const tt = Math.min(1, (t - a.t0) / a.dur);
-                  // easeOutCubic
-                  const e = 1 - Math.pow(1 - tt, 3);
-                  const next = {
-                    lat: a.start.lat + (a.end.lat - a.start.lat) * e,
-                    lng: a.start.lng + (a.end.lng - a.start.lng) * e,
-                  };
-                  mm.setPosition(next);
-                  if (tt >= 1) anims.delete(carId);
-                });
-
-                if (anims.size) {
-                  markerAnimRafRef.current = requestAnimationFrame(tick);
-                }
-              };
-
-              if (!markerAnimRafRef.current) {
-                markerAnimRafRef.current = requestAnimationFrame(tick);
-              }
-            });
-          });
-        }
-
-        // تحديث الأيقونة مباشرة (اللون والاتجاه)
-        const icon = existing.getIcon();
-        const currentColor = icon && "fillColor" in icon ? icon.fillColor : null;
-        const currentRotation = icon && "rotation" in icon ? icon.rotation : null;
-
-        if (currentColor !== color || currentRotation !== rotation) {
-          existing.setIcon({
-            path: carPath,
-            fillColor: color,
-            fillOpacity: 1,
-            strokeColor: "#000",
-            strokeWeight: 0.7,
-            scale: 0.05,
-            rotation: rotation,
-            anchor: new window.google.maps.Point(156, 256),
-            labelOrigin: new window.google.maps.Point(156, 700),
-          });
-        }
+      const color = getCarColor(merged);
+      const rotation = merged.direction || 0;
+      const icon = existing.getIcon();
+      const currentColor = icon && "fillColor" in icon ? icon.fillColor : null;
+      const currentRotation = icon && "rotation" in icon ? icon.rotation : null;
+      if (currentColor !== color || currentRotation !== rotation) {
+        existing.setIcon({
+          path: carPath,
+          fillColor: color,
+          fillOpacity: 1,
+          strokeColor: "#000",
+          strokeWeight: 0.7,
+          scale: 0.05,
+          rotation,
+          anchor: new window.google.maps.Point(156, 256),
+          labelOrigin: new window.google.maps.Point(156, 700),
+        });
       }
     });
 
-    // إزالة الماركرات اللي اختفت
     Array.from(markers.keys()).forEach((id) => {
       if (currentIds.has(id)) return;
       const m = markers.get(id);
       if (m) m.setMap(null);
       markers.delete(id);
     });
-  }, [map, validCars, createRotatedMarker, getCarColor]);
+  }, [map, carIdsKey, createRotatedMarker, getCarColor, fleetVersion]);
 
-  // ✅ Cleanup للأنيميشن
   useEffect(() => {
-    return () => {
-      try {
-        if (markerAnimRafRef.current) cancelAnimationFrame(markerAnimRafRef.current);
-      } catch {
-        // ignore
-      }
-      markerAnimRafRef.current = 0;
-      markerAnimRef.current.clear();
-    };
-  }, []);
+    if (!map || !window.google) return;
 
-  // ✅ إدارة أسماء الأجهزة (labels) بشكل خفيف جدًا:
-  // - لا نستدعي setLabel إلا عند تغيير الاسم أو عند toggle showDeviceName
+    const applyFleetPositions = () => {
+      const markers = carMarkersRef.current;
+      let clusterDirty = false;
+
+      carsMetaRef.current.forEach((car) => {
+        if (car?.id == null) return;
+        const live = getFleetLive(car.id);
+        if (!live?.position) return;
+        pendingMarkerUpdatesRef.current.set(car.id, live.position);
+
+        const feat = geojsonFeaturesRef.current.find(
+          (f) => f.properties?.carId === car.id,
+        );
+        if (feat) {
+          const [lng, lat] = feat.geometry.coordinates;
+          if (lng !== live.position.lng || lat !== live.position.lat) {
+            feat.geometry.coordinates = [live.position.lng, live.position.lat];
+            if (feat.properties?.car) {
+              feat.properties.car = { ...feat.properties.car, ...live };
+            }
+            clusterDirty = true;
+          }
+        }
+      });
+
+      if (!markerRafRef.current) {
+        markerRafRef.current = requestAnimationFrame(() => {
+          markerRafRef.current = 0;
+          const pending = pendingMarkerUpdatesRef.current;
+          pendingMarkerUpdatesRef.current = new Map();
+          pending.forEach((pos, id) => {
+            animateMarkerTo(markers, id, pos);
+          });
+        });
+      }
+
+      if (clusterDirty && superclusterRef.current) {
+        superclusterRef.current.load(geojsonFeaturesRef.current);
+        scheduleClusterRefresh();
+      }
+    };
+
+    applyFleetPositions();
+    return subscribeFleet(applyFleetPositions);
+  }, [map, animateMarkerTo, scheduleClusterRefresh]);
+
   useEffect(() => {
     if (!map || !window.google) return;
 
     const markers = carMarkersRef.current;
     const labelMeta = markerLabelMetaRef.current;
-    const currentIds = new Set(validCars.map((c) => c.id));
+    const currentIds = new Set((cars || []).map((c) => c.id));
 
-    validCars.forEach((car) => {
+    (cars || []).forEach((car) => {
       const marker = markers.get(car.id);
       if (!marker) return;
 
@@ -287,7 +317,6 @@ const GoogleMapView = ({
 
       if (showDeviceName) {
         if (meta.shown === true && meta.text === nextText) return;
-
         marker.setLabel({
           text: nextText,
           color: "#212121",
@@ -301,7 +330,6 @@ const GoogleMapView = ({
         return;
       }
 
-      // showDeviceName = false
       if (meta.shown === false) return;
       marker.setLabel(null);
       meta.shown = false;
@@ -309,13 +337,11 @@ const GoogleMapView = ({
       labelMeta.set(car.id, meta);
     });
 
-    // تنظيف meta للعناصر المحذوفة
     Array.from(labelMeta.keys()).forEach((id) => {
       if (!currentIds.has(id)) labelMeta.delete(id);
     });
-  }, [map, validCars, showDeviceName]);
+  }, [map, cars, showDeviceName, carIdsKey]);
 
-  // ✅ إدارة التجميع (Clusters) + تحديثه على idle بدل حسابه في كل render
   useEffect(() => {
     if (!map || !window.google || !superclusterRef.current) return;
 
@@ -331,13 +357,11 @@ const GoogleMapView = ({
         return;
       }
 
-      // clusters ON
       markers.forEach((m) => {
         if (!m.getMap()) m.setMap(map);
         m.setVisible(false);
       });
 
-      // selected marker always visible
       if (selectedCarId) {
         const selectedMarker = markers.get(selectedCarId);
         if (selectedMarker) selectedMarker.setVisible(true);
@@ -355,8 +379,10 @@ const GoogleMapView = ({
         bounds.getNorthEast().lat(),
       ];
 
-      const currentZoom = map.getZoom();
-      const clustersData = superclusterRef.current.getClusters(bbox, currentZoom);
+      const clustersData = superclusterRef.current.getClusters(
+        bbox,
+        map.getZoom(),
+      );
 
       clustersData.forEach((feature) => {
         const [lng, lat] = feature.geometry.coordinates;
@@ -386,7 +412,7 @@ const GoogleMapView = ({
           marker.addListener("click", () => {
             const expansionZoom =
               superclusterRef.current.getClusterExpansionZoom(
-                feature.properties.cluster_id
+                feature.properties.cluster_id,
               );
             map.setZoom(expansionZoom);
             map.panTo(position);
@@ -402,26 +428,18 @@ const GoogleMapView = ({
     };
 
     updateClusters();
-
     const idleListener = map.addListener("idle", updateClusters);
     return () => {
       clearClusterMarkers();
       if (idleListener) idleListener.remove();
     };
-  }, [map, clusters, selectedCarId, clearClusterMarkers]);
+  }, [map, clusters, selectedCarId, clearClusterMarkers, carIdsKey]);
 
-  // ##########################################
-  // ✅ رسم الجيوفنس
-  // ##########################################
   useEffect(() => {
     const handleDrawingStart = (e) => {
       const { type } = e.detail;
       if (!window.google || !map) return;
-
-      if (!window.google.maps.drawing) {
-        console.error("Google Maps Drawing library not loaded");
-        return;
-      }
+      if (!window.google.maps.drawing) return;
 
       if (drawingManagerRef.current) {
         drawingManagerRef.current.setMap(null);
@@ -459,97 +477,30 @@ const GoogleMapView = ({
         if (ev.type === "circle") {
           const center = overlay.getCenter();
           const radius = overlay.getRadius();
-          const circleData = {
-            type: "circle",
-            center: center.toJSON(),
-            radius: radius.toFixed(2),
-          };
-
           dispatch(
-            openGeoFenceModal({ fenceData: circleData, mission: "add" })
+            openGeoFenceModal({
+              fenceData: {
+                type: "circle",
+                center: center.toJSON(),
+                radius: radius.toFixed(2),
+              },
+              mission: "add",
+            }),
           );
         } else if (ev.type === "polygon") {
           const path = overlay
             .getPath()
             .getArray()
             .map((p) => p.toJSON());
-          const polygonData = { type: "polygon", path };
-
           dispatch(
-            openGeoFenceModal({ fenceData: polygonData, mission: "add" })
+            openGeoFenceModal({ fenceData: { type: "polygon", path }, mission: "add" }),
           );
         }
-
         overlay.setEditable(false);
         overlay.setDraggable(false);
         manager.setDrawingMode(null);
         window.currentShape = overlay;
       });
-    };
-
-    const handleEditShape = (event) => {
-      const { type, polygonData, center, radius } = event.detail;
-      if (!window.google || !map) return;
-
-      if (window.currentShape) window.currentShape.setMap(null);
-
-      if (type === "polygon") {
-        const polygon = new window.google.maps.Polygon({
-          paths: polygonData,
-          strokeColor: "#FF0000",
-          strokeOpacity: 0.8,
-          strokeWeight: 2,
-          fillColor: "#FF0000",
-          fillOpacity: 0.35,
-        });
-        polygon.setMap(map);
-        window.currentShape = polygon;
-
-        const bounds = new window.google.maps.LatLngBounds();
-        polygonData.forEach((point) => bounds.extend(point));
-        map.fitBounds(bounds);
-      }
-
-      if (type === "circle") {
-        const circle = new window.google.maps.Circle({
-          center,
-          radius,
-          strokeColor: "#FF5722",
-          strokeOpacity: 0.8,
-          strokeWeight: 2,
-          fillColor: "#FF9800",
-          fillOpacity: 0.35,
-        });
-        circle.setMap(map);
-        window.currentShape = circle;
-
-        const bounds = new window.google.maps.LatLngBounds();
-        const north = window.google.maps.geometry.spherical.computeOffset(
-          center,
-          radius,
-          0
-        );
-        const south = window.google.maps.geometry.spherical.computeOffset(
-          center,
-          radius,
-          180
-        );
-        const east = window.google.maps.geometry.spherical.computeOffset(
-          center,
-          radius,
-          90
-        );
-        const west = window.google.maps.geometry.spherical.computeOffset(
-          center,
-          radius,
-          270
-        );
-        bounds.extend(north);
-        bounds.extend(south);
-        bounds.extend(east);
-        bounds.extend(west);
-        map.fitBounds(bounds);
-      }
     };
 
     const handleClearShape = () => {
@@ -559,173 +510,49 @@ const GoogleMapView = ({
       }
     };
 
-    const handleShowAllPolygons = (event) => {
-      const { fences } = event.detail;
-      if (!window.google || !map || !fences) return;
-
-      if (window.allShapes) {
-        window.allShapes.forEach((shape) => shape.setMap(null));
-      }
-      window.allShapes = [];
-
-      const bounds = new window.google.maps.LatLngBounds();
-
-      fences.forEach((fence, index) => {
-        let shape;
-
-        if (
-          fence.type === "circle" &&
-          fence.latitude &&
-          fence.longitude &&
-          fence.radius
-        ) {
-          shape = new window.google.maps.Circle({
-            center: {
-              lat: parseFloat(fence.latitude),
-              lng: parseFloat(fence.longitude),
-            },
-            radius: parseFloat(fence.radius),
-            strokeColor: "#FF5722",
-            strokeOpacity: 0.8,
-            strokeWeight: 2,
-            fillColor: getColorByIndex(index),
-            fillOpacity: 0.35,
-            map: map,
-          });
-
-          const center = shape.getCenter();
-          const radius = shape.getRadius();
-          const north = window.google.maps.geometry.spherical.computeOffset(
-            center,
-            radius,
-            0
-          );
-          const south = window.google.maps.geometry.spherical.computeOffset(
-            center,
-            radius,
-            180
-          );
-          const east = window.google.maps.geometry.spherical.computeOffset(
-            center,
-            radius,
-            90
-          );
-          const west = window.google.maps.geometry.spherical.computeOffset(
-            center,
-            radius,
-            270
-          );
-
-          bounds.extend(north);
-          bounds.extend(south);
-          bounds.extend(east);
-          bounds.extend(west);
-        } else if (
-          fence.type === "polygon" &&
-          fence.coordinates &&
-          fence.coordinates.length > 0
-        ) {
-          const paths = fence.coordinates.map((coord) =>
-            Array.isArray(coord) ? { lat: coord[0], lng: coord[1] } : coord
-          );
-
-          shape = new window.google.maps.Polygon({
-            paths: paths,
-            strokeColor: "#2196F3",
-            strokeOpacity: 0.8,
-            strokeWeight: 2,
-            fillColor: getColorByIndex(index),
-            fillOpacity: 0.35,
-            map: map,
-          });
-
-          paths.forEach((point) => bounds.extend(point));
-        }
-
-        if (shape) window.allShapes.push(shape);
-      });
-
-      if (!bounds.isEmpty()) {
-        map.fitBounds(bounds);
-
-        if (bounds.toSpan().lat() < 0.001 || bounds.toSpan().lng() < 0.001) {
-          map.setZoom(map.getZoom() - 2);
-        }
-      }
-    };
-
-    const getColorByIndex = (index) => {
-      const colors = [
-        "#FF5722",
-        "#2196F3",
-        "#4CAF50",
-        "#FF9800",
-        "#9C27B0",
-        "#00BCD4",
-        "#8BC34A",
-        "#E91E63",
-        "#3F51B5",
-        "#009688",
-        "#CDDC39",
-        "#673AB7",
-      ];
-      return colors[index % colors.length];
-    };
-
     window.addEventListener("start-drawing", handleDrawingStart);
-    window.addEventListener("edit-shape", handleEditShape);
     window.addEventListener("clear-shape", handleClearShape);
-    window.addEventListener("show-all-polygons", handleShowAllPolygons);
     return () => {
       window.removeEventListener("start-drawing", handleDrawingStart);
-      window.removeEventListener("edit-shape", handleEditShape);
       window.removeEventListener("clear-shape", handleClearShape);
-      window.removeEventListener("show-all-polygons", handleShowAllPolygons);
-      if (window.allShapes) {
-        window.allShapes.forEach((shape) => shape.setMap(null));
-        window.allShapes = [];
-      }
     };
   }, [dispatch, map]);
 
   const handleZoomChanged = () => {
     if (!map) return;
-
-    const newZoom = map.getZoom();
-    dispatch(changeZoom(newZoom));
+    dispatch(changeZoom(map.getZoom()));
   };
 
+  const selectedCar = useMemo(() => {
+    if (!selectedCarId) return null;
+    const base = (cars || []).find((c) => c.id === selectedCarId);
+    return base ? mergeCarWithFleet(base) : null;
+  }, [cars, selectedCarId, fleetVersion]);
+
   return (
-    <>
-      <GoogleMap
-        mapContainerStyle={{ width: "100%", height: "100%" }}
-        center={center}
-        zoom={zoom}
-        onZoomChanged={handleZoomChanged}
-        onLoad={onLoad}
-        onClick={() => selectedCarId && handleSelectCar(null)}
-        options={{
-          fullscreenControl: false,
-          mapTypeControl: false,
-          mapTypeId: googleMapTypeId,
-        }}
-      >
-        {selectedCarId &&
-          (() => {
-            const car = validCars.find((c) => c.id === selectedCarId);
-            if (!car) return null;
-            return (
-              <InfoWindow
-                position={car.position}
-                onCloseClick={() => handleSelectCar(null)}
-                options={{ pixelOffset: new window.google.maps.Size(0, -40) }}
-              >
-                <CarPopup car={car} />
-              </InfoWindow>
-            );
-          })()}
-      </GoogleMap>
-    </>
+    <GoogleMap
+      mapContainerStyle={{ width: "100%", height: "100%" }}
+      center={center}
+      zoom={zoom}
+      onZoomChanged={handleZoomChanged}
+      onLoad={onLoad}
+      onClick={() => selectedCarId && handleSelectCar(null)}
+      options={{
+        fullscreenControl: false,
+        mapTypeControl: false,
+        mapTypeId: googleMapTypeId,
+      }}
+    >
+      {selectedCar && selectedCar.position && (
+        <InfoWindow
+          position={selectedCar.position}
+          onCloseClick={() => handleSelectCar(null)}
+          options={{ pixelOffset: new window.google.maps.Size(0, -40) }}
+        >
+          <CarPopup car={selectedCar} />
+        </InfoWindow>
+      )}
+    </GoogleMap>
   );
 };
 

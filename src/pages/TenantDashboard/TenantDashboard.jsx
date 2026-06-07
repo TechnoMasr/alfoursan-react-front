@@ -11,6 +11,11 @@ import { getMapTilerApiKey } from "./Maps/mapTilerConfig";
 import { useQuery } from "@tanstack/react-query";
 import useCarSocket from "../../hooks/useCarSocket";
 import { mergeTelemetry } from "../../utils/deviceTelemetry";
+import {
+  initFleetFromCars,
+  mergeCarsWithFleet,
+  subscribeFleetList,
+} from "../../utils/fleetPositionStore";
 import LoadingPage from "../../components/Loading/LoadingPage";
 import MapActions from "./MapActions/MapActions";
 import { useDispatch, useSelector } from "react-redux";
@@ -70,6 +75,7 @@ const TenantDashboard = () => {
   const { provider: mapProvider, zoom } = useSelector((state) => state.map);
 
   const [cars, setCars] = useState([]);
+  const [fleetVersion, setFleetVersion] = useState(0);
   const [isInit, setIsInit] = useState(false);
   const [center, setCenter] = useState({ lat: 23.8859, lng: 41.0792 });
   // const [zoom, setZoom] = useState(6);
@@ -153,9 +159,16 @@ const TenantDashboard = () => {
     return merged;
   }, []);
 
+  useEffect(() => subscribeFleetList(setFleetVersion), []);
+
+  const carsWithLive = useMemo(
+    () => mergeCarsWithFleet(cars),
+    [cars, fleetVersion],
+  );
+
   const branches = useMemo(() => {
     const map = new Map();
-    (cars || []).forEach((c) => {
+    (carsWithLive || []).forEach((c) => {
       const id = c?.branch_effective_id ?? null;
       const name = c?.branch_effective_name ?? null;
       if (id != null && name) {
@@ -165,17 +178,17 @@ const TenantDashboard = () => {
     return Array.from(map.values()).sort((a, b) =>
       a.name.localeCompare(b.name, "ar"),
     );
-  }, [cars]);
+  }, [carsWithLive]);
 
   // سيارات مفلترة بالفرع فقط (تُمرَّر للـ Filters و Search لتعكس الخيارات والأعداد حسب الفرع)
   const carsByBranch = useMemo(() => {
-    if (!activeBranchId) return cars || [];
-    return (cars || []).filter((car) => {
+    if (!activeBranchId) return carsWithLive || [];
+    return (carsWithLive || []).filter((car) => {
       const carBranchId =
         car?.branch_effective_id != null ? String(car.branch_effective_id) : "";
       return carBranchId === String(activeBranchId);
     });
-  }, [cars, activeBranchId]);
+  }, [carsWithLive, activeBranchId]);
 
   const filteredCars = useMemo(() => {
     return carsByBranch.filter((car) => {
@@ -273,6 +286,7 @@ const TenantDashboard = () => {
     if (devices) {
       const mappedCars = (devices?.devices || []).map(mapDeviceToCar);
       setCars((prev) => mergeCarsPreferLive(prev, mappedCars));
+      initFleetFromCars(mappedCars);
       setIsInit(true);
 
       // 🔁 بعدها اضرب API تانية بـ full=1 (بدون لودينج)
@@ -281,6 +295,7 @@ const TenantDashboard = () => {
         if (fullDevices) {
           const updatedCars = fullDevices.map(mapDeviceToCar);
           setCars((prev) => mergeCarsPreferLive(prev, updatedCars));
+          initFleetFromCars(updatedCars);
         }
       });
     }
@@ -371,27 +386,29 @@ const TenantDashboard = () => {
     const handler = (e) => {
       const { imei, carId } = e.detail || {};
       const car =
-        (carId != null && cars.find((c) => c?.id === carId)) ||
+        (carId != null && carsWithLive.find((c) => c?.id === carId)) ||
         (imei &&
-          cars.find((c) => String(c?.serial_number) === String(imei)));
+          carsWithLive.find((c) => String(c?.serial_number) === String(imei)));
       if (car) handleSelectCarRef.current?.(car, true);
     };
     window.addEventListener("alarm-go-to-map", handler);
     return () => window.removeEventListener("alarm-go-to-map", handler);
-  }, [cars]);
+  }, [carsWithLive]);
 
   // 🔌 WebSocket hook لتحديث العربيات (اتصال ثابت بدون socketRefresh)
   useCarSocket(cars, setCars, isInit, {
-    debug: true,
+    debug: import.meta.env.DEV,
     tag: "TenantDashboard",
     onAlarmSelectCar: onAlarmSelectCarFromSocket,
     useTenantRoom: true,
+    useFleetStore: true,
+    updateCarsOnGps: false,
   });
 
   // 🧭 تحديث العنوان عند تحرك العربية
   const selectedCar = useMemo(
-    () => cars.find((c) => c.id === selectedCarId) || null,
-    [cars, selectedCarId],
+    () => carsWithLive.find((c) => c.id === selectedCarId) || null,
+    [carsWithLive, selectedCarId],
   );
 
   useEffect(() => {
@@ -518,7 +535,7 @@ const TenantDashboard = () => {
   return (
     <section className="w-screen h-screen relative overflow-hidden">
       <SideMenu
-        cars={cars}
+        cars={carsWithLive}
         carsByBranch={carsByBranch}
         filteredCars={filteredCars}
         isFetching={isFetching}
@@ -537,6 +554,7 @@ const TenantDashboard = () => {
       {mapProvider === "google" && (
         <GoogleMapView
           cars={filteredCars}
+          fleetVersion={fleetVersion}
           center={center}
           zoom={zoom}
           selectedCarId={selectedCarId}
@@ -546,6 +564,7 @@ const TenantDashboard = () => {
       {mapProvider === "mapbox" && (
         <MapboxMapView
           cars={filteredCars}
+          fleetVersion={fleetVersion}
           viewState={viewState}
           setViewState={setViewState}
           MAPBOX_TOKEN={MAPBOX_TOKEN}
@@ -556,6 +575,7 @@ const TenantDashboard = () => {
       {mapProvider === "openstreetmap" && (
         <OpenStreetMapView
           cars={filteredCars}
+          fleetVersion={fleetVersion}
           center={center}
           zoom={zoom}
           selectedCarId={selectedCarId}
@@ -565,6 +585,7 @@ const TenantDashboard = () => {
       {mapProvider === "maplibre" && (
         <MapLibreMapView
           cars={filteredCars}
+          fleetVersion={fleetVersion}
           viewState={viewState}
           setViewState={setViewState}
           selectedCarId={selectedCarId}
@@ -574,6 +595,7 @@ const TenantDashboard = () => {
       {mapProvider === "maptiler" && (
         <MapTilerMapView
           cars={filteredCars}
+          fleetVersion={fleetVersion}
           viewState={viewState}
           setViewState={setViewState}
           selectedCarId={selectedCarId}

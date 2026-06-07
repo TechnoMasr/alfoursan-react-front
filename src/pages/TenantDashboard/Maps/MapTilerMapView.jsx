@@ -8,6 +8,7 @@ import { changeZoom } from "../../../store/mapSlice";
 import { getCarStatus } from "../../../utils/getCarStatus";
 import { carPath } from "../../../services/carPath";
 import { getMapTilerStyle } from "./mapTilerStyles";
+import { mergeCarWithFleet } from "../../../utils/fleetPositionStore";
 
 const POPUP_GAP_ABOVE_CAR = 36;
 const CAR_ICON_W = 16;
@@ -129,6 +130,7 @@ function CarInfoOverlay({ mapRef, car, onClose }) {
 
 const MapTilerMapView = ({
   cars,
+  fleetVersion = 0,
   viewState,
   setViewState,
   selectedCarId,
@@ -181,18 +183,19 @@ const MapTilerMapView = ({
   const validCars = useMemo(() => {
     const byId = new Map();
     (cars || []).forEach((car) => {
-      const lat = car?.position?.lat;
-      const lng = car?.position?.lng;
+      const merged = mergeCarWithFleet(car);
+      const lat = merged?.position?.lat;
+      const lng = merged?.position?.lng;
       const ok =
         typeof lat === "number" &&
         typeof lng === "number" &&
         !Number.isNaN(lat) &&
         !Number.isNaN(lng);
-      if (!ok || car?.id == null) return;
-      byId.set(car.id, car);
+      if (!ok || merged?.id == null) return;
+      byId.set(merged.id, merged);
     });
     return Array.from(byId.values());
-  }, [cars]);
+  }, [cars, fleetVersion]);
 
   const selectedCar = useMemo(
     () => validCars.find((c) => c.id === selectedCarId) || null,

@@ -16,6 +16,7 @@ import {
   telemetryFromAttributes,
   withStickyTelemetry,
 } from "../utils/deviceTelemetry";
+import { patchFleetLive } from "../utils/fleetPositionStore";
 
 /* ─────────────────────────────────────────────
    Alarm Toast UI  (Sonner rich-content version)
@@ -186,6 +187,9 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
   const useTenantRoom = Boolean(
     (options?.useTenantRoom ?? false) && resolvedTenantRoom,
   );
+  /** When false, GPS updates go to fleetPositionStore only (large fleet dashboards). */
+  const updateCarsOnGps = options?.updateCarsOnGps ?? true;
+  const useFleetStore = options?.useFleetStore ?? false;
   const tenantRoomRef = useRef(resolvedTenantRoom);
 
   const alarmAudioRef = useRef(null);
@@ -242,6 +246,14 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
     const ms = Date.parse(value);
     return Number.isFinite(ms) ? ms : null;
   };
+
+  const resolvePacketMs = (data, gps, dateValue) =>
+    parseTimeMs(data?.data?.packet_date) ??
+    parseTimeMs(dateValue) ??
+    parseTimeMs(gps?.date) ??
+    parseTimeMs(data?.data?.traccar_raw?.fixTime) ??
+    parseTimeMs(data?.data?.traccar_raw?.deviceTime) ??
+    null;
 
   const normalizeBool = (value) => {
     if (value === null || value === undefined || value === "") return null;
@@ -369,8 +381,8 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
         const lng = parseFloat(lngRaw);
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-        const dateValue = data.data.date ?? gps?.date ?? null;
-        const incomingMs = parseTimeMs(dateValue);
+        const dateValue = data.data.date ?? gps?.date ?? data.data.packet_date ?? null;
+        const packetMs = resolvePacketMs(data, gps, dateValue);
         const nextPos = { lat, lng };
         const nextSpeed = Number(data.data.speed ?? gps?.speed ?? 0) || 0;
         const nextDir = data.data.direction ?? gps?.direction;
@@ -432,6 +444,33 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
             const charge = nextCharge === null ? car.charge : nextCharge;
             const telemetry = mergeTelemetry(car, nextTelemetry);
 
+            const lastPacketMs =
+              car.lastPacketMs ?? car.lastGpsAtMs ?? 0;
+            const effectivePacketMs = packetMs ?? Date.now();
+            const isStalePosition =
+              lastPacketMs > 0 && effectivePacketMs < lastPacketMs;
+
+            if (isStalePosition) {
+              const telemetryOnly = withStickyTelemetry(
+                {
+                  ...car,
+                  ignition_on,
+                  motion,
+                  charge,
+                  lastUpdate: Date.now(),
+                },
+                nextTelemetry,
+              );
+              const sameTelemetry =
+                telemetryOnly.power === car.power &&
+                telemetryOnly.battery === car.battery &&
+                telemetryOnly.batteryLevel === car.batteryLevel &&
+                telemetryOnly.ignition_on === car.ignition_on &&
+                telemetryOnly.motion === car.motion &&
+                telemetryOnly.charge === car.charge;
+              return sameTelemetry ? car : telemetryOnly;
+            }
+
             const samePos =
               car.position?.lat === nextPos.lat &&
               car.position?.lng === nextPos.lng;
@@ -448,6 +487,10 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
 
             if (samePos && sameMeta) return car;
 
+            const nextLastGpsAtMs = shouldUpdateLastSignelGPS
+              ? effectivePacketMs
+              : car.lastGpsAtMs;
+
             return withStickyTelemetry(
               {
                 ...car,
@@ -459,13 +502,12 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
                 motion,
                 charge,
                 lastUpdate: Date.now(),
+                lastPacketMs: effectivePacketMs,
                 lastSignel: dateValue ?? car.lastSignel,
                 lastSignelGPS: shouldUpdateLastSignelGPS
                   ? dateValue ?? car.lastSignelGPS
                   : car.lastSignelGPS,
-                lastGpsAtMs: shouldUpdateLastSignelGPS
-                  ? incomingMs ?? Date.now()
-                  : car.lastGpsAtMs,
+                lastGpsAtMs: nextLastGpsAtMs,
               },
               nextTelemetry,
             );
@@ -482,6 +524,29 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
           const existing = prev[idx];
           if (!existing) return prev;
           const updated = applyUpdate(existing);
+
+          if (useFleetStore && updated !== existing) {
+            patchFleetLive(existing.id, {
+              position: updated.position,
+              speed: updated.speed,
+              direction: updated.direction,
+              status: updated.status,
+              ignition_on: updated.ignition_on,
+              motion: updated.motion,
+              charge: updated.charge,
+              power: updated.power,
+              battery: updated.battery,
+              batteryLevel: updated.batteryLevel,
+              lastUpdate: updated.lastUpdate,
+              lastSignel: updated.lastSignel,
+              lastSignelGPS: updated.lastSignelGPS,
+              lastGpsAtMs: updated.lastGpsAtMs,
+              lastPacketMs: updated.lastPacketMs,
+              serial_number: existing.serial_number,
+            });
+          }
+
+          if (!updateCarsOnGps) return prev;
           if (updated === existing) return prev;
 
           const next = prev.slice();
@@ -638,8 +703,7 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
                 ? false
                 : existing.isOffline;
 
-          const next = prev.slice();
-          next[idx] = {
+          const patched = {
             ...existing,
             device_status: status ?? existing.device_status,
             device_lastUpdate: lastUpdate ?? existing.device_lastUpdate,
@@ -649,6 +713,15 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
               existing.lastSignel ?? lastUpdate ?? existing.lastSignel,
             lastUpdate: Date.now(),
           };
+          if (useFleetStore) {
+            patchFleetLive(existing.id, {
+              isOffline: patched.isOffline,
+              isInactive: patched.isInactive,
+              lastUpdate: patched.lastUpdate,
+            });
+          }
+          const next = prev.slice();
+          next[idx] = patched;
           return next;
         });
       }
@@ -698,7 +771,7 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
         log("cleanup");
       }
     };
-  }, [isInit, enabled, resetKey, useTenantRoom]);
+  }, [isInit, enabled, resetKey, useTenantRoom, updateCarsOnGps, useFleetStore]);
 
   // tenant room: keep IMEI → index map in sync when fleet list changes (no per-device subscribe)
   useEffect(() => {

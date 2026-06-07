@@ -9,6 +9,11 @@ import useCarSocket from "../../hooks/useCarSocket";
 import { carPath } from "../../services/carPath";
 import { getCarStatus } from "../../utils/getCarStatus";
 import { telemetryFromMongo } from "../../utils/deviceTelemetry";
+import {
+  computeAnimDurationMs,
+  distanceMeters,
+  lerp,
+} from "../../utils/positionAnimation";
 import { useTranslation } from "react-i18next";
 import AlarmPoolBtn from "../../components/common/AlarmPoolBtn";
 
@@ -100,22 +105,6 @@ const DeviceTracking = () => {
   const car = cars[0] || null;
   const position = car?.position || null;
 
-  // helper: مسافة تقريبية بالمتر
-  const distanceMeters = (a, b) => {
-    if (!a || !b) return 0;
-    const R = 6371000;
-    const toRad = (x) => (x * Math.PI) / 180;
-    const dLat = toRad(b.lat - a.lat);
-    const dLng = toRad(b.lng - a.lng);
-    const aa =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-    const c = 2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa));
-    return R * c;
-  };
-
-  const lerp = (a, b, t) => a + (b - a) * t;
-
   const isInSafeBounds = (map, pos, paddingRatio = 0.2) => {
     if (!map || !pos) return true;
     const bounds = map.getBounds();
@@ -152,8 +141,7 @@ const DeviceTracking = () => {
     if (start.lat === end.lat && start.lng === end.lng) return;
 
     // مدة انيميشن حسب المسافة (clamp) لتجنب الاهتزاز
-    const d = distanceMeters(start, end);
-    const dur = Math.max(300, Math.min(1200, d * 6)); // 6ms لكل متر تقريبًا
+    const dur = computeAnimDurationMs(start, end);
 
     if (animRef.current.raf) cancelAnimationFrame(animRef.current.raf);
     animRef.current = { raf: 0, start, end, t0: performance.now(), dur };

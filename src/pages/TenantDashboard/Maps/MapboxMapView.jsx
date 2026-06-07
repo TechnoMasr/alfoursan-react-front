@@ -3,9 +3,11 @@ import "mapbox-gl/dist/mapbox-gl.css";
 import CarPopup from "../../../components/common/CarPopup";
 import { useSelector } from "react-redux";
 import { useCallback, useEffect, useMemo, useRef } from "react";
+import { mergeCarWithFleet } from "../../../utils/fleetPositionStore";
 
 const MapboxMapView = ({
   cars,
+  fleetVersion = 0,
   viewState,
   setViewState,
   MAPBOX_TOKEN,
@@ -44,13 +46,15 @@ const MapboxMapView = ({
   }, []);
 
   const validCars = useMemo(() => {
-    return (cars || []).filter(
-      (car) =>
-        car?.position &&
-        !isNaN(car.position.lat) &&
-        !isNaN(car.position.lng)
-    );
-  }, [cars]);
+    return (cars || [])
+      .map(mergeCarWithFleet)
+      .filter(
+        (car) =>
+          car?.position &&
+          !isNaN(car.position.lat) &&
+          !isNaN(car.position.lng),
+      );
+  }, [cars, fleetVersion]);
 
   return (
     <Map

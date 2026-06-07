@@ -12,6 +12,7 @@ import { changeZoom } from "../../../store/mapSlice";
 import { carPath } from "../../../services/carPath";
 import { getCarStatus } from "../../../utils/getCarStatus";
 import { getOsmTileLayer } from "./osmTileLayers";
+import { mergeCarWithFleet } from "../../../utils/fleetPositionStore";
 
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
@@ -452,6 +453,7 @@ function GeofenceLayer() {
 
 const OpenStreetMapView = ({
   cars,
+  fleetVersion = 0,
   center,
   zoom,
   selectedCarId,
@@ -463,18 +465,19 @@ const OpenStreetMapView = ({
   const validCars = useMemo(() => {
     const byId = new Map();
     (cars || []).forEach((car) => {
-      const lat = car?.position?.lat;
-      const lng = car?.position?.lng;
+      const merged = mergeCarWithFleet(car);
+      const lat = merged?.position?.lat;
+      const lng = merged?.position?.lng;
       const ok =
         typeof lat === "number" &&
         typeof lng === "number" &&
         !Number.isNaN(lat) &&
         !Number.isNaN(lng);
-      if (!ok || car?.id == null) return;
-      byId.set(car.id, car);
+      if (!ok || merged?.id == null) return;
+      byId.set(merged.id, merged);
     });
     return Array.from(byId.values());
-  }, [cars]);
+  }, [cars, fleetVersion]);
 
   const selectedCar = useMemo(
     () => validCars.find((c) => c.id === selectedCarId) || null,
