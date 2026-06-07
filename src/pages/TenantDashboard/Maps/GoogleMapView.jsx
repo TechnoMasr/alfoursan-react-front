@@ -33,8 +33,11 @@ const GoogleMapView = ({
   const markerAnimRef = useRef(new Map());
   const markerAnimRafRef = useRef(0);
   const geojsonFeaturesRef = useRef([]);
+  const featureByCarIdRef = useRef(new Map());
   const clusterRefreshTimerRef = useRef(0);
+  const clusterReloadTimerRef = useRef(0);
   const carsMetaRef = useRef([]);
+  const carsMetaByIdRef = useRef(new Map());
 
   const {
     clusters,
@@ -134,7 +137,7 @@ const GoogleMapView = ({
     }
   }, []);
 
-  const scheduleClusterRefresh = useCallback(() => {
+  const triggerClusterRefresh = useCallback(() => {
     if (clusterRefreshTimerRef.current) return;
     clusterRefreshTimerRef.current = window.setTimeout(() => {
       clusterRefreshTimerRef.current = 0;
@@ -143,6 +146,17 @@ const GoogleMapView = ({
       }
     }, 200);
   }, [map]);
+
+  const scheduleClusterReload = useCallback(() => {
+    if (clusterReloadTimerRef.current) return;
+    clusterReloadTimerRef.current = window.setTimeout(() => {
+      clusterReloadTimerRef.current = 0;
+      if (superclusterRef.current) {
+        superclusterRef.current.load(geojsonFeaturesRef.current);
+      }
+      triggerClusterRefresh();
+    }, 200);
+  }, [triggerClusterRefresh]);
 
   const createRotatedMarker = useCallback(
     (car, targetMap) => {
@@ -180,8 +194,11 @@ const GoogleMapView = ({
       if (markerRafRef.current) cancelAnimationFrame(markerRafRef.current);
       if (markerAnimRafRef.current) cancelAnimationFrame(markerAnimRafRef.current);
       if (clusterRefreshTimerRef.current) clearTimeout(clusterRefreshTimerRef.current);
+      if (clusterReloadTimerRef.current) clearTimeout(clusterReloadTimerRef.current);
       markerRafRef.current = 0;
       markerAnimRafRef.current = 0;
+      clusterRefreshTimerRef.current = 0;
+      clusterReloadTimerRef.current = 0;
       pendingMarkerUpdatesRef.current.clear();
       clearClusterMarkers();
       carMarkersRef.current.forEach((m) => m.setMap(null));
@@ -191,6 +208,11 @@ const GoogleMapView = ({
 
   useEffect(() => {
     carsMetaRef.current = cars || [];
+    carsMetaByIdRef.current = new Map(
+      (cars || [])
+        .filter((car) => car?.id != null)
+        .map((car) => [car.id, car]),
+    );
   }, [cars]);
 
   useEffect(() => {
@@ -201,10 +223,14 @@ const GoogleMapView = ({
         minPoints: 3,
       });
     }
-    geojsonFeaturesRef.current = buildGeoJsonFeatures(carsMetaRef.current);
-    superclusterRef.current.load(geojsonFeaturesRef.current);
-    scheduleClusterRefresh();
-  }, [carIdsKey, buildGeoJsonFeatures, scheduleClusterRefresh]);
+    const features = buildGeoJsonFeatures(carsMetaRef.current);
+    geojsonFeaturesRef.current = features;
+    featureByCarIdRef.current = new Map(
+      features.map((feature) => [feature.properties.carId, feature]),
+    );
+    superclusterRef.current.load(features);
+    triggerClusterRefresh();
+  }, [carIdsKey, buildGeoJsonFeatures, triggerClusterRefresh]);
 
   useEffect(() => {
     if (!map || !window.google) return;
@@ -255,19 +281,52 @@ const GoogleMapView = ({
   useEffect(() => {
     if (!map || !window.google) return;
 
-    const applyFleetPositions = () => {
+    const applyFleetPositions = (_version, change) => {
       const markers = carMarkersRef.current;
       let clusterDirty = false;
+      const updates =
+        change?.deviceId != null
+          ? [
+              {
+                id: change.deviceId,
+                live: change.next ?? getFleetLive(change.deviceId),
+              },
+            ]
+          : carsMetaRef.current.map((car) => ({
+              id: car.id,
+              live: getFleetLive(car.id),
+            }));
 
-      carsMetaRef.current.forEach((car) => {
-        if (car?.id == null) return;
-        const live = getFleetLive(car.id);
+      updates.forEach(({ id, live }) => {
+        if (id == null) return;
         if (!live?.position) return;
-        pendingMarkerUpdatesRef.current.set(car.id, live.position);
+        let marker = markers.get(id);
+        const baseCar = carsMetaByIdRef.current.get(id);
+        if (!marker && baseCar) {
+          marker = createRotatedMarker(
+            { ...baseCar, ...live, position: live.position },
+            map,
+          );
+          markers.set(id, marker);
+        }
+        if (marker) pendingMarkerUpdatesRef.current.set(id, live.position);
 
-        const feat = geojsonFeaturesRef.current.find(
-          (f) => f.properties?.carId === car.id,
-        );
+        let feat = featureByCarIdRef.current.get(id);
+        if (!feat && baseCar) {
+          const merged = { ...baseCar, ...live, position: live.position };
+          feat = {
+            type: "Feature",
+            properties: { cluster: false, carId: id, car: merged },
+            geometry: {
+              type: "Point",
+              coordinates: [live.position.lng, live.position.lat],
+            },
+          };
+          geojsonFeaturesRef.current.push(feat);
+          featureByCarIdRef.current.set(id, feat);
+          clusterDirty = true;
+          return;
+        }
         if (feat) {
           const [lng, lat] = feat.geometry.coordinates;
           if (lng !== live.position.lng || lat !== live.position.lat) {
@@ -292,14 +351,13 @@ const GoogleMapView = ({
       }
 
       if (clusterDirty && superclusterRef.current) {
-        superclusterRef.current.load(geojsonFeaturesRef.current);
-        scheduleClusterRefresh();
+        scheduleClusterReload();
       }
     };
 
     applyFleetPositions();
     return subscribeFleet(applyFleetPositions);
-  }, [map, animateMarkerTo, scheduleClusterRefresh]);
+  }, [map, animateMarkerTo, createRotatedMarker, scheduleClusterReload]);
 
   useEffect(() => {
     if (!map || !window.google) return;

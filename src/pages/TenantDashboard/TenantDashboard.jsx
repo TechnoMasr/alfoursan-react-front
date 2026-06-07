@@ -400,7 +400,7 @@ const TenantDashboard = () => {
     debug: import.meta.env.DEV,
     tag: "TenantDashboard",
     onAlarmSelectCar: onAlarmSelectCarFromSocket,
-    useTenantRoom: true,
+    // useTenantRoom: يُقرأ من window.__USE_TENANT_ROOM__ في index.html / monitoring.blade.php
     useFleetStore: true,
     updateCarsOnGps: false,
   });

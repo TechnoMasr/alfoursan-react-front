@@ -22,6 +22,18 @@
     window.__MAPTILER_KEY__ = "iOtnqIEKJQ2UZFnUiKnt";
     /** تفعيل Mapbox في قائمة تبديل الخريطة — false لعرض «غير متاح حالياً» */
     window.__MAPBOX_ENABLED__ = false;
+    /**
+     * TenantDashboard WebSocket:
+     * true  = subscribe_tenant_room (قناة واحدة للعميل)
+     * false = subscribe لكل جهاز (IMEI) على نفس الاتصال
+     */
+    window.__USE_TENANT_ROOM__ = true;
+    window.__WS_URL__ = "wss://alfursantracking.com/ws-backup/";
+
+    window.__TENANT_ID__ = "30";
+    window.__TENANT_ROOM__ = "tenant:30";
+
+
   </script>
 
   <script>

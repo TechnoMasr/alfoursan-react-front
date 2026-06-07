@@ -16,7 +16,7 @@ import {
   telemetryFromAttributes,
   withStickyTelemetry,
 } from "../utils/deviceTelemetry";
-import { patchFleetLive } from "../utils/fleetPositionStore";
+import { getFleetLive, patchFleetLive } from "../utils/fleetPositionStore";
 
 /* ─────────────────────────────────────────────
    Alarm Toast UI  (Sonner rich-content version)
@@ -184,9 +184,12 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
   const tenantRoomFromWindow =
     typeof window !== "undefined" ? window.__TENANT_ROOM__ : null;
   const resolvedTenantRoom = options?.tenantRoom ?? tenantRoomFromWindow ?? null;
-  const useTenantRoom = Boolean(
-    (options?.useTenantRoom ?? false) && resolvedTenantRoom,
-  );
+  const tenantRoomFlagFromWindow =
+    typeof window !== "undefined" ? window.__USE_TENANT_ROOM__ : undefined;
+  const useTenantRoomEnabled =
+    options?.useTenantRoom ??
+    (typeof tenantRoomFlagFromWindow === "boolean" ? tenantRoomFlagFromWindow : true);
+  const useTenantRoom = Boolean(useTenantRoomEnabled && resolvedTenantRoom);
   /** When false, GPS updates go to fleetPositionStore only (large fleet dashboards). */
   const updateCarsOnGps = options?.updateCarsOnGps ?? true;
   const useFleetStore = options?.useFleetStore ?? false;
@@ -523,9 +526,20 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
 
           const existing = prev[idx];
           if (!existing) return prev;
-          const updated = applyUpdate(existing);
+          const live =
+            useFleetStore && existing.id != null
+              ? getFleetLive(existing.id)
+              : null;
+          const base = live
+            ? {
+                ...existing,
+                ...live,
+                position: live.position ?? existing.position,
+              }
+            : existing;
+          const updated = applyUpdate(base);
 
-          if (useFleetStore && updated !== existing) {
+          if (useFleetStore && updated !== base) {
             patchFleetLive(existing.id, {
               position: updated.position,
               speed: updated.speed,
@@ -547,7 +561,7 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
           }
 
           if (!updateCarsOnGps) return prev;
-          if (updated === existing) return prev;
+          if (updated === base) return prev;
 
           const next = prev.slice();
           next[idx] = updated;

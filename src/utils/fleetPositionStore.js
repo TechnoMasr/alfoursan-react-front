@@ -28,11 +28,11 @@ function notifyListListeners() {
   }, FLEET_LIST_THROTTLE_MS);
 }
 
-function bump() {
+function bump(change = null) {
   version += 1;
   listeners.forEach((fn) => {
     try {
-      fn(version);
+      fn(version, change);
     } catch {
       /* ignore */
     }
@@ -89,10 +89,23 @@ export function getDeviceIdBySerial(serial) {
 export function patchFleetLive(deviceId, patch) {
   if (deviceId == null) return false;
   const prev = positionsById.get(deviceId) || {};
+  const changed = Object.keys(patch || {}).some((key) => {
+    const prevValue = prev[key];
+    const nextValue = patch[key];
+    if (key === "position") {
+      return (
+        prevValue?.lat !== nextValue?.lat ||
+        prevValue?.lng !== nextValue?.lng
+      );
+    }
+    return prevValue !== nextValue;
+  });
+  if (!changed) return false;
+
   const next = { ...prev, ...patch };
   positionsById.set(deviceId, next);
   if (patch.serial_number) serialToId.set(String(patch.serial_number), deviceId);
-  bump();
+  bump({ deviceId, patch, prev, next });
   return true;
 }
 
