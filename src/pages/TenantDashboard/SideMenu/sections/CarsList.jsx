@@ -18,23 +18,10 @@ const CarRow = memo(function CarRow({
   car,
   isSelected,
   handleSelectCar,
-  selectionTrigger,
 }) {
   const dispatch = useDispatch();
   const { t } = useTranslation();
   const { status, color } = useMemo(() => getCarStatus(car), [car]);
-
-  const rowRef = useRef(null);
-
-  useEffect(() => {
-    if (isSelected && rowRef.current) {
-      rowRef.current.scrollIntoView({
-        behavior: "smooth",
-        block: "nearest",
-      });
-    }
-  // }, [isSelected]);
-  }, [isSelected, selectionTrigger]);
 
   const speedVal = Number(car?.speed) || 0;
   const ignitionAsMoving = speedVal > 1;
@@ -52,7 +39,7 @@ const CarRow = memo(function CarRow({
 
   return (
     <div
-      ref={rowRef}
+      data-car-id={car.id}
       className="relative flex items-center gap-1 hover:bg-gray-400/10 rounded-lg"
       style={{
         color,
@@ -193,8 +180,18 @@ const CarsList = ({
   cars,
   isFetching,
 }) => {
+  const listRef = useRef(null);
+
+  useEffect(() => {
+    if (!selectedCarId || !listRef.current) return;
+    const row = listRef.current.querySelector(
+      `[data-car-id="${selectedCarId}"]`,
+    );
+    row?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [selectedCarId, selectionTrigger]);
+
   return (
-    <div className="flex flex-col gap-1 overflow-y-auto flex-1">
+    <div ref={listRef} className="flex flex-col gap-1 overflow-y-auto flex-1">
       {isFetching && <Loader />}
 
       {cars.map((car) => (
@@ -203,7 +200,6 @@ const CarsList = ({
           car={car}
           isSelected={car.id === selectedCarId}
           handleSelectCar={handleSelectCar}
-          selectionTrigger={selectionTrigger}
         />
       ))}
     </div>

@@ -32,35 +32,14 @@ import {
 } from "../../store/modalsSlice";
 import { PiPhoneCall, PiPolygon } from "react-icons/pi";
 import { Link } from "react-router-dom";
-import { useEffect, useMemo, useState } from "react";
+import { memo } from "react";
 import { useTranslation } from "react-i18next";
 import { GiPathDistance } from "react-icons/gi";
 import { formatTelemetryDisplay } from "../../utils/deviceTelemetry";
 
-const CarPopup = ({ car, showActions = true }) => {
+const CarPopup = memo(function CarPopup({ car, showActions = true }) {
   const { t } = useTranslation();
   const { status, color } = getCarStatus(car);
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  const addressCountdown = useMemo(() => {
-    const minMs =
-      typeof car?.addressMinIntervalMs === "number"
-        ? car.addressMinIntervalMs
-        : null;
-    if (minMs == null) return null;
-    const last =
-      typeof car?.lastGeocodeAtMs === "number" ? car.lastGeocodeAtMs : 0;
-    const remainingMs = Math.max(0, minMs - (now - last));
-    const totalSec = Math.ceil(remainingMs / 1000);
-    const mm = String(Math.floor(totalSec / 60)).padStart(2, "0");
-    const ss = String(totalSec % 60).padStart(2, "0");
-    return { mm, ss };
-  }, [car?.addressMinIntervalMs, car?.lastGeocodeAtMs, now]);
 
   const formatDate = (isoString) => {
     if (!isoString) return t("carPopup.noData");
@@ -311,6 +290,6 @@ const CarPopup = ({ car, showActions = true }) => {
       )}
     </div>
   );
-};
+});
 
 export default CarPopup;

@@ -38,6 +38,10 @@ const GoogleMapView = ({
   const clusterReloadTimerRef = useRef(0);
   const carsMetaRef = useRef([]);
   const carsMetaByIdRef = useRef(new Map());
+  const selectedCarIdRef = useRef(selectedCarId);
+  const updateClustersRef = useRef(null);
+
+  selectedCarIdRef.current = selectedCarId;
 
   const {
     clusters,
@@ -420,8 +424,8 @@ const GoogleMapView = ({
         m.setVisible(false);
       });
 
-      if (selectedCarId) {
-        const selectedMarker = markers.get(selectedCarId);
+      if (selectedCarIdRef.current) {
+        const selectedMarker = markers.get(selectedCarIdRef.current);
         if (selectedMarker) selectedMarker.setVisible(true);
       }
 
@@ -485,13 +489,19 @@ const GoogleMapView = ({
       });
     };
 
+    updateClustersRef.current = updateClusters;
     updateClusters();
     const idleListener = map.addListener("idle", updateClusters);
     return () => {
+      updateClustersRef.current = null;
       clearClusterMarkers();
       if (idleListener) idleListener.remove();
     };
-  }, [map, clusters, selectedCarId, clearClusterMarkers, carIdsKey]);
+  }, [map, clusters, clearClusterMarkers, carIdsKey]);
+
+  useEffect(() => {
+    updateClustersRef.current?.();
+  }, [selectedCarId]);
 
   useEffect(() => {
     const handleDrawingStart = (e) => {
@@ -587,6 +597,14 @@ const GoogleMapView = ({
     return base ? mergeCarWithFleet(base) : null;
   }, [cars, selectedCarId, fleetVersion]);
 
+  const infoWindowOffset = useMemo(
+    () =>
+      window.google?.maps
+        ? new window.google.maps.Size(0, -40)
+        : undefined,
+    [map],
+  );
+
   return (
     <GoogleMap
       mapContainerStyle={{ width: "100%", height: "100%" }}
@@ -603,9 +621,10 @@ const GoogleMapView = ({
     >
       {selectedCar && selectedCar.position && (
         <InfoWindow
+          key={selectedCarId}
           position={selectedCar.position}
           onCloseClick={() => handleSelectCar(null)}
-          options={{ pixelOffset: new window.google.maps.Size(0, -40) }}
+          options={{ pixelOffset: infoWindowOffset }}
         >
           <CarPopup car={selectedCar} />
         </InfoWindow>

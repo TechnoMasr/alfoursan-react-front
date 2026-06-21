@@ -542,7 +542,10 @@ const TenantDashboard = () => {
   // 🚗 اختيار عربية من القائمة
   const handleSelectCar = useCallback(
     (car, shouldZoom = false) => {
-      if (!car) return setSelectedCarId(null);
+      if (!car) {
+        setSelectedCarId(null);
+        return;
+      }
 
       const { position } = car;
       const { lat, lng } = position || {};
@@ -554,9 +557,8 @@ const TenantDashboard = () => {
         !isNaN(lat) &&
         !isNaN(lng);
 
-      // ✅ العربية تبقى active حتى لو مفيش location
       setSelectedCarId(car.id);
-      setSelectionTrigger(Date.now());
+      if (shouldZoom) setSelectionTrigger(Date.now());
 
       if (!hasValidPosition) {
         toast.warning(t("tenantDashboard.locationUnavailable"));

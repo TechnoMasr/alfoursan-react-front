@@ -25,6 +25,7 @@ const Search = ({ cars, handleSelectCar }) => {
 
   // عند تغيّر النتائج: تحديد أول عنصر أو إلغاء التحديد
   useEffect(() => {
+    itemRefs.current = [];
     if (filteredCars.length > 0) {
       setHighlightedIndex(0);
     } else {
