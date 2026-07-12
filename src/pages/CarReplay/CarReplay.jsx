@@ -976,6 +976,23 @@ const CarReplay = () => {
 
   if (!isLoaded) return <LoadingPage />;
 
+  // const handleDateChange = (from, to, timezone = clientTimezone) => {
+  //   const diffDays =
+  //     (new Date(to).getTime() - new Date(from).getTime()) /
+  //     (1000 * 60 * 60 * 24);
+  //   if (diffDays > 30) {
+  //     toast.warn(t("carReplay.max30DaysWarning"));
+  //     return;
+  //   }
+
+  //   setIsPlaying(false);
+  //   setCurrentIndex(0);
+  //   setShowInfo(false);
+
+  //   setDateRange({ from, to, timezone });
+  //   refetch();
+  // };
+
   const handleDateChange = (from, to, timezone = clientTimezone) => {
     const diffDays =
       (new Date(to).getTime() - new Date(from).getTime()) /
@@ -989,8 +1006,7 @@ const CarReplay = () => {
     setCurrentIndex(0);
     setShowInfo(false);
 
-    setDateRange({ from, to, timezone });
-    refetch();
+    setDateRange({ from, to, timezone }); // كفاية كده
   };
 
   const formatDate = (dateString) => {

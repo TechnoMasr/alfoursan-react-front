@@ -138,9 +138,13 @@ const ReplayFilter = ({ onDateChange, serial_number }) => {
     refetchOnReconnect: false,
   });
 
+  // const filteredDevices =
+  //   devices?.filter((device) =>
+  //     device.name.toLowerCase().includes(search.toLowerCase()),
+  //   ) ?? [];
   const filteredDevices =
     devices?.filter((device) =>
-      device.name.toLowerCase().includes(search.toLowerCase()),
+      (device?.name ?? "").toLowerCase().includes(search.toLowerCase()),
     ) ?? [];
 
   const navigate = useNavigate();
@@ -203,16 +207,16 @@ const ReplayFilter = ({ onDateChange, serial_number }) => {
                 )}
 
                 {filteredDevices.map((device) => (
-                  <li key={device.serial_number}>
+                  <li key={device?.serial_number}>
                     <button
                       className="text-left w-full"
                       onClick={() => {
-                        navigate(`/car-replay/${device.serial_number}`);
+                        navigate(`/car-replay/${device?.serial_number}`);
                         setIsOpen(false);
                         setSearch("");
                       }}
                     >
-                      {device.name}
+                      {device?.name}
                     </button>
                   </li>
                 ))}
