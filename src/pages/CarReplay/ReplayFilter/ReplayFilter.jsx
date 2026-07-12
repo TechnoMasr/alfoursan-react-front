@@ -209,6 +209,7 @@ const ReplayFilter = ({ onDateChange, serial_number }) => {
                 {filteredDevices.map((device) => (
                   <li key={device?.serial_number}>
                     <button
+                      type="button"
                       className="text-left w-full"
                       onClick={() => {
                         navigate(`/car-replay/${device?.serial_number}`);
