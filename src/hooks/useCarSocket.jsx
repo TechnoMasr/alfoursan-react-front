@@ -18,6 +18,19 @@ import {
 } from "../utils/deviceTelemetry";
 import { getFleetLive, patchFleetLive } from "../utils/fleetPositionStore";
 
+/** Global WS channel for command replies (matches gps-server spelling). */
+const COMMAND_RESPONSE_CHANNEL = "command_response_chanel";
+
+const cmdChannelDebug = () =>
+  typeof window !== "undefined" && window.__DEBUG_CMD_CHANNEL__ === true;
+
+const cmdChannelBp = (label, extra) => {
+  if (!cmdChannelDebug()) return;
+  console.log(`[BP:cmd-channel] ${label}`, extra);
+  // Set window.__DEBUG_CMD_CHANNEL_BREAK__ = true to pause in DevTools
+  if (window.__DEBUG_CMD_CHANNEL_BREAK__ === true) debugger;
+};
+
 /* ─────────────────────────────────────────────
    Alarm Toast UI  (Sonner rich-content version)
    يُمرَّر كـ JSX مباشرة لـ toast.custom()
@@ -205,6 +218,9 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
   const indexByImeiRef = useRef(new Map());
   const onStatusRef = useRef(onStatusChange);
   const carsRef = useRef(cars);
+  /** Dedupe command_response when both channel + IMEI paths deliver the same reply */
+  const lastCmdKeyRef = useRef("");
+  const cmdChannelSubscribedRef = useRef(false);
 
   useEffect(() => {
     notificationSoundRef.current = notificationSound;
@@ -317,6 +333,19 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
 
     ws.onopen = () => {
       emitStatus("open");
+      cmdChannelSubscribedRef.current = false;
+
+      // Always join the fast command-response channel (independent of tenant room / IMEI)
+      ws.send(
+        JSON.stringify({
+          type: "subscribe_command_response_channel",
+          channel: COMMAND_RESPONSE_CHANNEL,
+        }),
+      );
+      cmdChannelSubscribedRef.current = true;
+      cmdChannelBp("subscribe sent", { channel: COMMAND_RESPONSE_CHANNEL });
+      log("subscribe_command_response_channel =>", COMMAND_RESPONSE_CHANNEL);
+
       if (useTenantRoom) {
         const room = tenantRoomRef.current;
         if (!room) {
@@ -326,7 +355,11 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
         }
         ws.send(JSON.stringify({ type: "subscribe_tenant_room", room }));
         log("subscribe_tenant_room =>", room);
-        emitStatus("ready", { tenantRoom: room, subscribedCount: 0 });
+        emitStatus("ready", {
+          tenantRoom: room,
+          commandChannel: COMMAND_RESPONSE_CHANNEL,
+          subscribedCount: 0,
+        });
         return;
       }
 
@@ -342,7 +375,10 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
         subscribedCount++;
         log("subscribe =>", imei);
       });
-      emitStatus("ready", { subscribedCount });
+      emitStatus("ready", {
+        subscribedCount,
+        commandChannel: COMMAND_RESPONSE_CHANNEL,
+      });
       log("ready", { subscribedCount });
     };
 
@@ -364,10 +400,60 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
         return;
       }
 
-      if (data?.type === "tenant_gps_update" && data.data) {
+      // Fast path: dedicated command channel (handle before GPS flood)
+      if (data?.type === "command_response_channel_update" && data.data) {
+        cmdChannelBp("recv channel update", {
+          imei: data.imei,
+          channel: data.channel,
+        });
+        data = data.data;
+      } else if (data?.type === "command_response_channel_subscribed") {
+        cmdChannelBp("subscribed ack", { channel: data.channel });
+        return;
+      } else if (data?.type === "tenant_gps_update" && data.data) {
         data = data.data;
       }
 
+      /* ══════════ COMMAND RESPONSE (priority — before GPS) ══════════ */
+      if (
+        data.type === "command_response" &&
+        data.data?.response &&
+        data.data?.imei
+      ) {
+        const response = data.data.response;
+        const imei = data.data.imei;
+        const dedupeKey = `${imei}|${response}|${String(data.data?.date || data.data?.packet_date || "")}`;
+        if (lastCmdKeyRef.current === dedupeKey) {
+          cmdChannelBp("dedupe skip", { imei });
+          return;
+        }
+        lastCmdKeyRef.current = dedupeKey;
+
+        cmdChannelBp("dispatch command_response", { imei, responsePreview: String(response).slice(0, 80) });
+
+        const currentModal = detailsModalRef.current;
+        const isModalOpen = currentModal?.show;
+        const modalDeviceId = currentModal?.id;
+        const modalDevice = carsRef.current.find(
+          (car) => car.id === modalDeviceId,
+        );
+        const modalImei = modalDevice?.serial_number;
+        const isMatchingDevice = isModalOpen && modalImei === imei;
+
+        dispatch(setCommandResponse({ response, imei }));
+
+        if (!isMatchingDevice) {
+          const car = carsRef.current.find((c) => c.serial_number === imei);
+          const carName = car?.name || car?.car_number || "غير معروف";
+
+          toast.success(`${carName}: ${response}`, {
+            description: `IMEI: ${imei}`,
+            duration: 8000,
+            position: "bottom-right",
+          });
+        }
+        return;
+      }
 
       /* ══════════ GPS ══════════ */
       if (data.type === "gps" && (data.data?.imei || data.data?.serial)) {
@@ -740,47 +826,25 @@ const useCarSocket = (cars, setCars, isInit, options = {}) => {
         });
       }
 
-      /* ══════════ COMMAND RESPONSE ══════════ */
-      if (
-        data.type === "command_response" &&
-        data.data?.response &&
-        data.data?.imei
-      ) {
-        const response = data.data.response;
-        const imei = data.data.imei;
-
-        const currentModal = detailsModalRef.current;
-        const isModalOpen = currentModal?.show;
-        const modalDeviceId = currentModal?.id;
-        const modalDevice = carsRef.current.find(
-          (car) => car.id === modalDeviceId,
-        );
-        const modalImei = modalDevice?.serial_number;
-        const isMatchingDevice = isModalOpen && modalImei === imei;
-
-        dispatch(setCommandResponse({ response, imei }));
-
-        if (!isMatchingDevice) {
-          const car = carsRef.current.find((c) => c.serial_number === imei);
-          const carName = car?.name || car?.car_number || "غير معروف";
-
-          // ✅ Sonner success toast
-          toast.success(`${carName}: ${response}`, {
-            description: `IMEI: ${imei}`,
-            duration: 8000,
-            position: "bottom-right",
-          });
-        }
-      }
+      // command_response handled above (fast path) — no second handler here
     };
 
     return () => {
       try {
+        if (ws.readyState === WebSocket.OPEN && cmdChannelSubscribedRef.current) {
+          ws.send(
+            JSON.stringify({
+              type: "unsubscribe_command_response_channel",
+              channel: COMMAND_RESPONSE_CHANNEL,
+            }),
+          );
+        }
         ws.close();
       } finally {
         if (wsRef.current === ws) wsRef.current = null;
         subscribedImeisRef.current = new Set();
         indexByImeiRef.current = new Map();
+        cmdChannelSubscribedRef.current = false;
         emitStatus("closed");
         log("cleanup");
       }

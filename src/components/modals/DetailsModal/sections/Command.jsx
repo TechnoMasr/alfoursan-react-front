@@ -27,7 +27,7 @@ const Command = ({ deviceID, deviceSettings, refetch }) => {
   const [waitingForResponse, setWaitingForResponse] = useState(false);
   const [builderState, setBuilderState] = useState({});
 
-  // التحقق من أن الاستجابة تخص هذا الجهاز
+  // التحقق من أن الاستجابة تخص هذا الجهاز (من قناة command_response_chanel عبر useCarSocket)
   const deviceImei = deviceSettings?.device?.serial_number;
   const isResponseForThisDevice =
     commandResponse?.response && commandResponse?.imei === deviceImei;
@@ -35,6 +35,18 @@ const Command = ({ deviceID, deviceSettings, refetch }) => {
   const isOffline =
     deviceSettings?.device?.isOffline ??
     (deviceStatus ? deviceStatus !== "online" : true);
+
+  // BP: trace when Command modal receives a matching reply (enable window.__DEBUG_CMD_CHANNEL__)
+  useEffect(() => {
+    if (!isResponseForThisDevice) return;
+    if (typeof window !== "undefined" && window.__DEBUG_CMD_CHANNEL__ === true) {
+      console.log("[BP:cmd-channel] Command.jsx matched IMEI", {
+        deviceImei,
+        responsePreview: String(commandResponse?.response || "").slice(0, 80),
+      });
+      if (window.__DEBUG_CMD_CHANNEL_BREAK__ === true) debugger;
+    }
+  }, [isResponseForThisDevice, deviceImei, commandResponse?.response]);
 
   const commandTabs = [
     { label: t("command.remoteOpeningDoor"), isNew: false },
