@@ -279,10 +279,7 @@ const TenantDashboard = () => {
     prevMapProviderRef.current = mapProvider;
     if (prev === mapProvider) return;
 
-    if (
-      mapProvider === "google" &&
-      VECTOR_MAP_PROVIDERS.includes(prev)
-    ) {
+    if (mapProvider === "google" && VECTOR_MAP_PROVIDERS.includes(prev)) {
       const vs = viewStateRef.current;
       if (Number.isFinite(vs.latitude) && Number.isFinite(vs.longitude)) {
         setCenter({ lat: vs.latitude, lng: vs.longitude });
@@ -292,10 +289,7 @@ const TenantDashboard = () => {
       }
     }
 
-    if (
-      VECTOR_MAP_PROVIDERS.includes(mapProvider) &&
-      prev === "google"
-    ) {
+    if (VECTOR_MAP_PROVIDERS.includes(mapProvider) && prev === "google") {
       const c = centerRef.current;
       setViewState((v) => ({
         ...v,
@@ -523,10 +517,7 @@ const TenantDashboard = () => {
       if (mapProvider === "google") getGoogleAddress(lat, lng, updateAddress);
       else if (mapProvider === "maptiler")
         getMapTilerAddress(lat, lng, updateAddress);
-      else if (
-        mapProvider === "openstreetmap" ||
-        mapProvider === "maplibre"
-      )
+      else if (mapProvider === "openstreetmap" || mapProvider === "maplibre")
         getOsmAddress(lat, lng, updateAddress);
       else getMapboxAddress(lat, lng, updateAddress);
     }

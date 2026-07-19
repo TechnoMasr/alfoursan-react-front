@@ -25,25 +25,6 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 });
 
-const FENCE_COLORS = [
-  "#FF5722",
-  "#2196F3",
-  "#4CAF50",
-  "#FF9800",
-  "#9C27B0",
-  "#00BCD4",
-  "#8BC34A",
-  "#E91E63",
-  "#3F51B5",
-  "#009688",
-  "#CDDC39",
-  "#673AB7",
-];
-
-function getColorByIndex(index) {
-  return FENCE_COLORS[index % FENCE_COLORS.length];
-}
-
 function createCarDivIcon(car, showLabel) {
   const color = getCarStatus(car).color;
   const rotation = car.direction || 0;
@@ -339,118 +320,6 @@ function CarInfoOverlay({ car, onClose }) {
   );
 }
 
-function GeofenceLayer() {
-  const map = useMap();
-  const shapesRef = useRef([]);
-  const allShapesRef = useRef([]);
-
-  useEffect(() => {
-    const clearShapes = (list) => {
-      list.forEach((s) => {
-        try {
-          map.removeLayer(s);
-        } catch {
-          // ignore
-        }
-      });
-      list.length = 0;
-    };
-
-    const handleEditShape = (event) => {
-      const { type, polygonData, center, radius } = event.detail;
-      clearShapes(shapesRef.current);
-
-      if (type === "polygon" && polygonData?.length) {
-        const latlngs = polygonData.map((p) => [p.lat, p.lng]);
-        const polygon = L.polygon(latlngs, {
-          color: "#FF0000",
-          weight: 2,
-          fillOpacity: 0.35,
-        }).addTo(map);
-        shapesRef.current.push(polygon);
-        map.fitBounds(polygon.getBounds(), { padding: [40, 40] });
-      }
-
-      if (type === "circle" && center && radius) {
-        const circle = L.circle([center.lat, center.lng], {
-          radius: Number(radius),
-          color: "#FF5722",
-          weight: 2,
-          fillOpacity: 0.35,
-        }).addTo(map);
-        shapesRef.current.push(circle);
-        map.fitBounds(circle.getBounds(), { padding: [40, 40] });
-      }
-    };
-
-    const handleClearShape = () => clearShapes(shapesRef.current);
-
-    const handleShowAllPolygons = (event) => {
-      const { fences } = event.detail;
-      if (!fences) return;
-
-      clearShapes(allShapesRef.current);
-      const bounds = L.latLngBounds([]);
-
-      fences.forEach((fence, index) => {
-        const fillColor = getColorByIndex(index);
-
-        if (
-          fence.type === "circle" &&
-          fence.latitude &&
-          fence.longitude &&
-          fence.radius
-        ) {
-          const circle = L.circle(
-            [parseFloat(fence.latitude), parseFloat(fence.longitude)],
-            {
-              radius: parseFloat(fence.radius),
-              color: "#FF5722",
-              weight: 2,
-              fillColor,
-              fillOpacity: 0.35,
-            },
-          ).addTo(map);
-          allShapesRef.current.push(circle);
-          bounds.extend(circle.getBounds());
-        } else if (fence.coordinates?.length > 0) {
-          const latlngs = fence.coordinates.map((coord) =>
-            Array.isArray(coord)
-              ? [coord[0], coord[1]]
-              : [coord.lat, coord.lng],
-          );
-          const polygon = L.polygon(latlngs, {
-            color: "#2196F3",
-            weight: 2,
-            fillColor,
-            fillOpacity: 0.35,
-          }).addTo(map);
-          allShapesRef.current.push(polygon);
-          latlngs.forEach((ll) => bounds.extend(ll));
-        }
-      });
-
-      if (bounds.isValid()) {
-        map.fitBounds(bounds, { padding: [40, 40] });
-      }
-    };
-
-    window.addEventListener("edit-shape", handleEditShape);
-    window.addEventListener("clear-shape", handleClearShape);
-    window.addEventListener("show-all-polygons", handleShowAllPolygons);
-
-    return () => {
-      window.removeEventListener("edit-shape", handleEditShape);
-      window.removeEventListener("clear-shape", handleClearShape);
-      window.removeEventListener("show-all-polygons", handleShowAllPolygons);
-      clearShapes(shapesRef.current);
-      clearShapes(allShapesRef.current);
-    };
-  }, [map]);
-
-  return null;
-}
-
 const OpenStreetMapView = ({
   cars,
   fleetVersion = 0,
@@ -459,7 +328,9 @@ const OpenStreetMapView = ({
   selectedCarId,
   handleSelectCar,
 }) => {
-  const { clusters, mapType, showDeviceName } = useSelector((state) => state.map);
+  const { clusters, mapType, showDeviceName } = useSelector(
+    (state) => state.map,
+  );
   const tile = useMemo(() => getOsmTileLayer(mapType), [mapType]);
 
   const validCars = useMemo(() => {
@@ -511,7 +382,6 @@ const OpenStreetMapView = ({
         clusters={clusters}
         showDeviceName={showDeviceName}
       />
-      <GeofenceLayer />
 
       {selectedCar && (
         <CarInfoOverlay

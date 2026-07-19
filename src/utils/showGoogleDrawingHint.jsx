@@ -17,10 +17,10 @@ export function showGoogleDrawingHint(t, onSwitchToGoogle) {
           <PiPolygonFill className="text-amber-600 text-xl" aria-hidden />
         </div>
         <div className="flex-1 space-y-2 text-start">
-          <p className="font-bold text-gray-900 text-sm leading-snug">
+          <p className="font-bold text-white text-sm leading-snug">
             {t("mapActions.drawingGoogleTitle")}
           </p>
-          <p className="text-gray-600 text-xs leading-relaxed">
+          <p className="text-gray-100 text-xs leading-relaxed">
             {t("mapActions.drawingGoogleBody")}
           </p>
           <button

@@ -12,7 +12,29 @@ import {
   mergeCarWithFleet,
   subscribeFleet,
 } from "../../../utils/fleetPositionStore";
-import { computeAnimDurationDeg, easeOutCubic } from "../../../utils/positionAnimation";
+import {
+  computeAnimDurationDeg,
+  easeOutCubic,
+} from "../../../utils/positionAnimation";
+
+const FENCE_COLORS = [
+  "#FF5722",
+  "#2196F3",
+  "#4CAF50",
+  "#FF9800",
+  "#9C27B0",
+  "#00BCD4",
+  "#8BC34A",
+  "#E91E63",
+  "#3F51B5",
+  "#009688",
+  "#CDDC39",
+  "#673AB7",
+];
+
+function getColorByIndex(index) {
+  return FENCE_COLORS[index % FENCE_COLORS.length];
+}
 
 const GoogleMapView = ({
   cars,
@@ -23,7 +45,12 @@ const GoogleMapView = ({
   handleSelectCar,
 }) => {
   const [map, setMap] = useState(null);
-  const drawingManagerRef = useRef(null);
+  // const drawingManagerRef = useRef(null);
+  const drawingStateRef = useRef({
+    type: null,
+    listeners: [],
+    tempOverlay: null,
+  });
   const superclusterRef = useRef(null);
   const carMarkersRef = useRef(new Map());
   const clusterMarkersRef = useRef([]);
@@ -43,11 +70,9 @@ const GoogleMapView = ({
 
   selectedCarIdRef.current = selectedCarId;
 
-  const {
-    clusters,
-    mapType,
-    showDeviceName,
-  } = useSelector((state) => state.map);
+  const { clusters, mapType, showDeviceName } = useSelector(
+    (state) => state.map,
+  );
 
   const googleMapTypeId = isGoogleMapType(mapType) ? mapType : "roadmap";
   const dispatch = useDispatch();
@@ -196,9 +221,12 @@ const GoogleMapView = ({
   useEffect(() => {
     return () => {
       if (markerRafRef.current) cancelAnimationFrame(markerRafRef.current);
-      if (markerAnimRafRef.current) cancelAnimationFrame(markerAnimRafRef.current);
-      if (clusterRefreshTimerRef.current) clearTimeout(clusterRefreshTimerRef.current);
-      if (clusterReloadTimerRef.current) clearTimeout(clusterReloadTimerRef.current);
+      if (markerAnimRafRef.current)
+        cancelAnimationFrame(markerAnimRafRef.current);
+      if (clusterRefreshTimerRef.current)
+        clearTimeout(clusterRefreshTimerRef.current);
+      if (clusterReloadTimerRef.current)
+        clearTimeout(clusterReloadTimerRef.current);
       markerRafRef.current = 0;
       markerAnimRafRef.current = 0;
       clusterRefreshTimerRef.current = 0;
@@ -213,9 +241,7 @@ const GoogleMapView = ({
   useEffect(() => {
     carsMetaRef.current = cars || [];
     carsMetaByIdRef.current = new Map(
-      (cars || [])
-        .filter((car) => car?.id != null)
-        .map((car) => [car.id, car]),
+      (cars || []).filter((car) => car?.id != null).map((car) => [car.id, car]),
     );
   }, [cars]);
 
@@ -504,71 +530,174 @@ const GoogleMapView = ({
   }, [selectedCarId]);
 
   useEffect(() => {
+    const stopDrawingMode = () => {
+      const state = drawingStateRef.current;
+      state.listeners.forEach((l) => l.remove());
+      if (state.startMarker) state.startMarker.setMap(null);
+      if (map) map.setOptions({ draggableCursor: null });
+      drawingStateRef.current = {
+        type: null,
+        listeners: [],
+        tempOverlay: null,
+        startMarker: null,
+      };
+    };
+
+    const cancelDrawing = () => {
+      const state = drawingStateRef.current;
+      state.listeners.forEach((l) => l.remove());
+      if (state.tempOverlay) state.tempOverlay.setMap(null);
+      if (state.startMarker) state.startMarker.setMap(null);
+      if (map) map.setOptions({ draggableCursor: null });
+      drawingStateRef.current = {
+        type: null,
+        listeners: [],
+        tempOverlay: null,
+        startMarker: null,
+      };
+    };
+
+    const finishCircle = (circle) => {
+      const center = circle.getCenter();
+      const radius = circle.getRadius();
+      circle.setOptions({ clickable: true });
+      window.currentShape = circle;
+      dispatch(
+        openGeoFenceModal({
+          fenceData: {
+            type: "circle",
+            center: center.toJSON(),
+            radius: radius.toFixed(2),
+          },
+          mission: "add",
+        }),
+      );
+      stopDrawingMode();
+    };
+
+    const finishPolygon = (polygon) => {
+      const path = polygon
+        .getPath()
+        .getArray()
+        .map((p) => p.toJSON());
+      polygon.setOptions({ clickable: true });
+      window.currentShape = polygon;
+      dispatch(
+        openGeoFenceModal({
+          fenceData: { type: "polygon", path },
+          mission: "add",
+        }),
+      );
+      stopDrawingMode();
+    };
+
     const handleDrawingStart = (e) => {
       const { type } = e.detail;
       if (!window.google || !map) return;
-      if (!window.google.maps.drawing) return;
 
-      if (drawingManagerRef.current) {
-        drawingManagerRef.current.setMap(null);
-      }
+      cancelDrawing();
+      map.setOptions({ draggableCursor: "crosshair" });
 
-      const manager = new window.google.maps.drawing.DrawingManager({
-        drawingMode:
-          type === "circle"
-            ? window.google.maps.drawing.OverlayType.CIRCLE
-            : window.google.maps.drawing.OverlayType.POLYGON,
-        drawingControl: false,
-        circleOptions: {
-          fillColor: "#2196F3",
-          fillOpacity: 0.3,
-          strokeColor: "#0D47A1",
-          strokeWeight: 2,
-          editable: true,
-          draggable: true,
-        },
-        polygonOptions: {
-          fillColor: "#4CAF50",
-          fillOpacity: 0.3,
-          strokeColor: "#1B5E20",
-          strokeWeight: 2,
-          editable: true,
-          draggable: true,
-        },
-      });
+      if (type === "circle") {
+        let center = null;
+        let circle = null;
 
-      manager.setMap(map);
-      drawingManagerRef.current = manager;
+        const clickListener = map.addListener("click", (ev) => {
+          if (!center) {
+            center = ev.latLng;
+            circle = new window.google.maps.Circle({
+              map,
+              center,
+              radius: 1,
+              fillColor: "#2196F3",
+              fillOpacity: 0.3,
+              strokeColor: "#0D47A1",
+              strokeWeight: 2,
+              clickable: false,
+            });
+            drawingStateRef.current.tempOverlay = circle;
+            return;
+          }
+          finishCircle(circle);
+        });
 
-      window.google.maps.event.addListener(manager, "overlaycomplete", (ev) => {
-        let overlay = ev.overlay;
-        if (ev.type === "circle") {
-          const center = overlay.getCenter();
-          const radius = overlay.getRadius();
-          dispatch(
-            openGeoFenceModal({
-              fenceData: {
-                type: "circle",
-                center: center.toJSON(),
-                radius: radius.toFixed(2),
+        const moveListener = map.addListener("mousemove", (ev) => {
+          if (!center || !circle) return;
+          const radius =
+            window.google.maps.geometry.spherical.computeDistanceBetween(
+              center,
+              ev.latLng,
+            );
+          circle.setRadius(radius);
+        });
+
+        drawingStateRef.current = {
+          type: "circle",
+          listeners: [clickListener, moveListener],
+          tempOverlay: null,
+          startMarker: null,
+        };
+      } else if (type === "polygon") {
+        let path = [];
+        let polygon = null;
+        let startMarker = null;
+
+        const clickListener = map.addListener("click", (ev) => {
+          path.push(ev.latLng);
+
+          if (!polygon) {
+            polygon = new window.google.maps.Polygon({
+              map,
+              paths: path,
+              fillColor: "#4CAF50",
+              fillOpacity: 0.3,
+              strokeColor: "#1B5E20",
+              strokeWeight: 2,
+              clickable: false,
+            });
+            drawingStateRef.current.tempOverlay = polygon;
+
+            startMarker = new window.google.maps.Marker({
+              position: path[0],
+              map,
+              icon: {
+                path: window.google.maps.SymbolPath.CIRCLE,
+                scale: 7,
+                fillColor: "#1B5E20",
+                fillOpacity: 1,
+                strokeColor: "#fff",
+                strokeWeight: 2,
               },
-              mission: "add",
-            }),
-          );
-        } else if (ev.type === "polygon") {
-          const path = overlay
-            .getPath()
-            .getArray()
-            .map((p) => p.toJSON());
-          dispatch(
-            openGeoFenceModal({ fenceData: { type: "polygon", path }, mission: "add" }),
-          );
-        }
-        overlay.setEditable(false);
-        overlay.setDraggable(false);
-        manager.setDrawingMode(null);
-        window.currentShape = overlay;
-      });
+              zIndex: 999,
+              cursor: "pointer",
+            });
+            drawingStateRef.current.startMarker = startMarker;
+
+            const startMarkerListener = startMarker.addListener("click", () => {
+              if (path.length < 3) return;
+              polygon.setPath(path);
+              if (startMarker) startMarker.setMap(null);
+              finishPolygon(polygon);
+            });
+            drawingStateRef.current.listeners.push(startMarkerListener);
+          } else {
+            polygon.setPath(path);
+          }
+        });
+
+        // ✅ خط preview بيتبع الماوس من آخر نقطة لحد مكان المؤشر
+        const moveListener = map.addListener("mousemove", (ev) => {
+          if (!polygon || path.length === 0) return;
+          polygon.setPath([...path, ev.latLng]);
+        });
+
+        drawingStateRef.current = {
+          type: "polygon",
+          listeners: [clickListener, moveListener],
+          tempOverlay: null,
+          startMarker: null,
+        };
+      }
     };
 
     const handleClearShape = () => {
@@ -583,8 +712,125 @@ const GoogleMapView = ({
     return () => {
       window.removeEventListener("start-drawing", handleDrawingStart);
       window.removeEventListener("clear-shape", handleClearShape);
+      cancelDrawing();
     };
   }, [dispatch, map]);
+
+  useEffect(() => {
+    if (!map || !window.google) return;
+
+    const handleEditShape = (e) => {
+      const { type, polygonData, center, radius } = e.detail;
+
+      if (window.currentShape) {
+        window.currentShape.setMap(null);
+        window.currentShape = null;
+      }
+
+      if (type === "polygon" && polygonData?.length) {
+        const path = polygonData.map((p) => ({ lat: p.lat, lng: p.lng }));
+        const polygon = new window.google.maps.Polygon({
+          map,
+          paths: path,
+          strokeColor: "#FF0000",
+          strokeWeight: 2,
+          fillColor: "#FF0000",
+          fillOpacity: 0.35,
+          editable: true,
+          draggable: true,
+        });
+        window.currentShape = polygon;
+
+        const bounds = new window.google.maps.LatLngBounds();
+        path.forEach((p) => bounds.extend(p));
+        map.fitBounds(bounds, 40);
+      }
+
+      if (type === "circle" && center && radius) {
+        const circle = new window.google.maps.Circle({
+          map,
+          center,
+          radius: Number(radius),
+          strokeColor: "#FF5722",
+          strokeWeight: 2,
+          fillColor: "#FF5722",
+          fillOpacity: 0.35,
+          editable: true,
+          draggable: true,
+        });
+        window.currentShape = circle;
+        map.fitBounds(circle.getBounds(), 40);
+      }
+    };
+
+    const handleShowAllPolygons = (e) => {
+      const { fences } = e.detail;
+      if (!fences) return;
+
+      if (window.allShapes) {
+        window.allShapes.forEach((s) => s.setMap(null));
+      }
+      window.allShapes = [];
+
+      const bounds = new window.google.maps.LatLngBounds();
+
+      fences.forEach((fence, index) => {
+        const fillColor = getColorByIndex(index);
+
+        if (
+          fence.type === "circle" &&
+          fence.latitude &&
+          fence.longitude &&
+          fence.radius
+        ) {
+          const circle = new window.google.maps.Circle({
+            map,
+            center: {
+              lat: parseFloat(fence.latitude),
+              lng: parseFloat(fence.longitude),
+            },
+            radius: parseFloat(fence.radius),
+            strokeColor: "#FF5722",
+            strokeWeight: 2,
+            fillColor,
+            fillOpacity: 0.35,
+            clickable: false,
+          });
+          window.allShapes.push(circle);
+          bounds.union(circle.getBounds());
+        } else if (fence.coordinates?.length > 0) {
+          const path = fence.coordinates.map((coord) =>
+            Array.isArray(coord)
+              ? { lat: coord[0], lng: coord[1] }
+              : { lat: coord.lat, lng: coord.lng },
+          );
+          const polygon = new window.google.maps.Polygon({
+            map,
+            paths: path,
+            strokeColor: "#2196F3",
+            strokeWeight: 2,
+            fillColor,
+            fillOpacity: 0.35,
+            clickable: false,
+          });
+          window.allShapes.push(polygon);
+          path.forEach((p) => bounds.extend(p));
+        }
+      });
+
+      if (!bounds.isEmpty()) {
+        map.fitBounds(bounds, 40);
+      }
+    };
+
+    window.addEventListener("edit-shape", handleEditShape);
+    window.addEventListener("show-all-polygons", handleShowAllPolygons);
+
+    return () => {
+      window.removeEventListener("edit-shape", handleEditShape);
+      window.removeEventListener("show-all-polygons", handleShowAllPolygons);
+    };
+  }, [map]);
 
   const handleZoomChanged = () => {
     if (!map) return;
@@ -599,9 +845,7 @@ const GoogleMapView = ({
 
   const infoWindowOffset = useMemo(
     () =>
-      window.google?.maps
-        ? new window.google.maps.Size(0, -40)
-        : undefined,
+      window.google?.maps ? new window.google.maps.Size(0, -40) : undefined,
     [map],
   );
 
