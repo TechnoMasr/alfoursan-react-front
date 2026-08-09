@@ -36,6 +36,7 @@ import SupportModal from "../../components/modals/SupportModal";
 import { changeZoom } from "../../store/mapSlice";
 import { useTranslation } from "react-i18next";
 import { takePendingGoogleDraw } from "../../utils/pendingGoogleDraw";
+import { isVehicleMoving } from "../../utils/getCarStatus";
 
 const VECTOR_MAP_PROVIDERS = ["mapbox", "maplibre", "maptiler"];
 
@@ -255,7 +256,7 @@ const TenantDashboard = () => {
       if (activeFilter === "online") return !car.isOffline && !car.isInactive;
       if (activeFilter === "offline") return !!car.isOffline && !car.isInactive;
       if (activeFilter === "moving") {
-        return !car.isOffline && !car.isInactive && Number(car.speed) > 0;
+        return !car.isOffline && !car.isInactive && isVehicleMoving(car);
       }
       return true;
     });

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { isVehicleMoving } from "../../../../utils/getCarStatus";
 
 const Filters = ({ cars, activeFilter, setActiveFilter }) => {
   const { t } = useTranslation();
@@ -21,7 +22,7 @@ const Filters = ({ cars, activeFilter, setActiveFilter }) => {
       }
 
       online += 1;
-      if (Number(c.speed) > 0) moving += 1;
+      if (isVehicleMoving(c)) moving += 1;
     });
 
     return [

@@ -60,6 +60,29 @@ function getTimeDiffDetailed(lastSignelGPS) {
   return { days, hours, minutes, seconds, hoursSinceLastGPS };
 }
 
+// عتبة اعتبار المركبة متوقفة إذا لم تصل إشارة حركة (speed > 0) جديدة خلالها.
+// تُعالج حالة: آخر إشارة كانت بسرعة 2-4 كم/س ثم انقطع الجهاز، فتظهر «متحركة» زوراً.
+export const MOVING_STALE_MS = 3 * 60 * 1000; // 3 دقائق
+
+// آخر لحظة تثبيت أثناء الحركة (بالميلي ثانية): من socket (lastGpsAtMs) وإلا من lastSignelGPS.
+const getMovingFixMs = (car) => {
+  if (typeof car?.lastGpsAtMs === "number" && Number.isFinite(car.lastGpsAtMs)) {
+    return car.lastGpsAtMs;
+  }
+  const d = parseSaudiDate(car?.lastSignelGPS);
+  return d && !Number.isNaN(d.getTime()) ? d.getTime() : null;
+};
+
+// هل المركبة تتحرك فعلياً الآن؟ سرعة > 1 وآخر تثبيت حركة ضمن العتبة الزمنية.
+// يُعاد تقييمها مع كل إعادة رسم (حزمة socket / تفاعل) دون الحاجة لأي polling.
+export const isVehicleMoving = (car) => {
+  const s = Number(car?.speed) || 0;
+  if (s <= 1) return false;
+  const fixMs = getMovingFixMs(car);
+  if (fixMs == null) return true; // لا يوجد زمن مرجعي → اعتمد على السرعة فقط
+  return Date.now() - fixMs <= MOVING_STALE_MS;
+};
+
 // 🚗 Main function to get car status (Saudi time)
 export const getCarStatus = (car) => {
   if (!car) return { status: "Unknown", color: "#6b7280" }; // رمادي فاتح
@@ -98,9 +121,9 @@ export const getCarStatus = (car) => {
 
 
 
-  // 🟢 Moving
+  // 🟢 Moving — فقط إذا كانت آخر إشارة حركة حديثة (تفادي «متحرك» وهمي بعد انقطاع الإشارة)
   const s = Number(speed) || 0;
-  if (s > 1) {
+  if (s > 1 && isVehicleMoving(car)) {
     return {
       status: `Moving (${s} km/h)`,
       color: "#22c55e",
@@ -110,15 +133,11 @@ export const getCarStatus = (car) => {
     return { status: "Static", color: "#3b82f6" };
   }
 
-  // 🔵 ليس متحركًا (عرض الحركة فقط عندما s > 1). مدة «منذ» فقط من last_gps_at (lastSignelGPS)
-  // التي يحدّثها الخادم عند speed > 0؛ قبلها تكون null فيظهر «ثابت» بدون منذ
-  if (s <= 1) {
-    const sinceSource = lastSignelGPS;
-    return {
-      status: sinceSource ? `Static (${getTimeDiffString(sinceSource)})` : "Static",
-      color: "#3b82f6",
-    };
-  }
-
-  return { status: "Unknown", color: "#6b7280" };
+  // 🔵 متوقفة: إمّا السرعة <= 1، أو سرعة قديمة تجاوزت العتبة الزمنية (MOVING_STALE_MS).
+  // مدة «منذ» من last_gps_at (lastSignelGPS) التي يحدّثها الخادم عند speed > 0.
+  const sinceSource = lastSignelGPS;
+  return {
+    status: sinceSource ? `Static (${getTimeDiffString(sinceSource)})` : "Static",
+    color: "#3b82f6",
+  };
 };

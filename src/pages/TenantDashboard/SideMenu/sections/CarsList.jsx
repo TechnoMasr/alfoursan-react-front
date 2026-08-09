@@ -8,7 +8,7 @@ import {
 import { memo, useEffect, useMemo, useRef } from "react";
 import { useDispatch } from "react-redux";
 import Loader from "../../../../components/Loading/Loader";
-import { getCarStatus } from "../../../../utils/getCarStatus";
+import { getCarStatus, isVehicleMoving } from "../../../../utils/getCarStatus";
 import { parseTelemetryNumber } from "../../../../utils/deviceTelemetry";
 import { Link } from "react-router-dom";
 import { MdOutlinePowerSettingsNew } from "react-icons/md";
@@ -23,8 +23,7 @@ const CarRow = memo(function CarRow({
   const { t } = useTranslation();
   const { status, color } = useMemo(() => getCarStatus(car), [car]);
 
-  const speedVal = Number(car?.speed) || 0;
-  const ignitionAsMoving = speedVal > 1;
+  const ignitionAsMoving = isVehicleMoving(car);
   const effectiveIgnitionOn = ignitionAsMoving ? true : car?.ignition_on;
 
   const lat = car?.position?.lat;
