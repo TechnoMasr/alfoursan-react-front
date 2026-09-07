@@ -1,57 +1,22 @@
-import MapGL, { Marker } from "react-map-gl/maplibre";
+import MapGL, { Source, Layer } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { createPortal } from "react-dom";
 import CarPopup from "../../../components/common/CarPopup";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { changeZoom } from "../../../store/mapSlice";
-import { getCarStatus } from "../../../utils/getCarStatus";
-import { carPath } from "../../../services/carPath";
-import { getMapTilerStyle } from "./mapTilerStyles";
 import { mergeCarWithFleet } from "../../../utils/fleetPositionStore";
+import { getMapTilerStyle } from "./mapTilerStyles";
+import {
+  FLEET_ARROW_LAYER,
+  FLEET_CIRCLE_LAYER,
+  FLEET_HIT_LAYER_IDS,
+  FLEET_LABEL_LAYER,
+  FLEET_SOURCE_ID,
+} from "./fleetGeoJson";
+import { useFleetGeoJsonSource } from "./useFleetGeoJsonSource";
 
 const POPUP_GAP_ABOVE_CAR = 36;
-const CAR_ICON_W = 16;
-const CAR_ICON_H = 22;
-
-function CarMarkerIcon({ car }) {
-  const color = getCarStatus(car).color;
-  const rotation = car.direction || 0;
-
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        transform: "translateY(-5px)",
-        cursor: "pointer",
-      }}
-    >
-      <div
-        style={{
-          transform: `rotate(${rotation}deg)`,
-          width: CAR_ICON_W,
-          height: CAR_ICON_H,
-        }}
-      >
-        <svg
-          viewBox="0 0 312 512"
-          width={CAR_ICON_W}
-          height={CAR_ICON_H}
-          style={{ display: "block" }}
-        >
-          <path
-            d={carPath}
-            fill={color}
-            stroke="#000"
-            strokeWidth="2"
-          />
-        </svg>
-      </div>
-    </div>
-  );
-}
 
 function CarInfoOverlay({ mapRef, car, onClose }) {
   const [screenPos, setScreenPos] = useState(null);
@@ -60,19 +25,16 @@ function CarInfoOverlay({ mapRef, car, onClose }) {
 
   useEffect(() => {
     let map = mapRef.current?.getMap?.();
-    if (!map) return undefined;
+    if (!map || !car?.position) return undefined;
 
     setContainer(map.getContainer());
-
-    const lat = car.position.lat;
-    const lng = car.position.lng;
 
     const update = () => {
       map = mapRef.current?.getMap?.();
       if (!map) return;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = requestAnimationFrame(() => {
-        const p = map.project([lng, lat]);
+        const p = map.project([car.position.lng, car.position.lat]);
         setScreenPos({ x: p.x, y: p.y });
       });
     };
@@ -88,13 +50,13 @@ function CarInfoOverlay({ mapRef, car, onClose }) {
       map.off("resize", update);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [mapRef, car.position.lat, car.position.lng]);
+  }, [mapRef, car?.position?.lat, car?.position?.lng]);
 
   if (!screenPos || !container) return null;
 
   return createPortal(
     <div
-      className="car-osm-info-overlay maplibre-car-info-overlay"
+      className="car-osm-info-overlay maptiler-car-info-overlay"
       style={{
         position: "absolute",
         left: screenPos.x,
@@ -141,8 +103,16 @@ const MapTilerMapView = ({
   const mapRef = useRef(null);
   const rafRef = useRef(null);
   const lastMoveTsRef = useRef(0);
+  const carsRef = useRef(cars);
+  carsRef.current = cars;
 
   const mapStyle = useMemo(() => getMapTilerStyle(mapType), [mapType]);
+
+  const { initialData, getFeatureCarIdFromEvent, flush } = useFleetGeoJsonSource({
+    mapRef,
+    cars,
+    selectedCarId,
+  });
 
   const onMove = useCallback(
     (evt) => {
@@ -150,7 +120,6 @@ const MapTilerMapView = ({
       const now = Date.now();
       if (now - lastMoveTsRef.current < 50) return;
       lastMoveTsRef.current = now;
-
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = requestAnimationFrame(() => setViewState(next));
     },
@@ -165,13 +134,17 @@ const MapTilerMapView = ({
     [setViewState, dispatch],
   );
 
-  const handleMarkerClick = useCallback(
-    (e, car) => {
-      e.originalEvent?.stopPropagation?.();
-      e.stopPropagation?.();
-      handleSelectCar(car);
+  const onMapClick = useCallback(
+    (e) => {
+      const carId = getFeatureCarIdFromEvent(e);
+      if (carId == null) {
+        handleSelectCar(null);
+        return;
+      }
+      const base = (carsRef.current || []).find((c) => c.id === carId);
+      if (base) handleSelectCar(mergeCarWithFleet(base));
     },
-    [handleSelectCar],
+    [getFeatureCarIdFromEvent, handleSelectCar],
   );
 
   useEffect(() => {
@@ -180,26 +153,18 @@ const MapTilerMapView = ({
     };
   }, []);
 
-  const validCars = useMemo(() => {
-    const byId = new Map();
-    (cars || []).forEach((car) => {
-      const merged = mergeCarWithFleet(car);
-      const lat = merged?.position?.lat;
-      const lng = merged?.position?.lng;
-      const ok =
-        typeof lat === "number" &&
-        typeof lng === "number" &&
-        !Number.isNaN(lat) &&
-        !Number.isNaN(lng);
-      if (!ok || merged?.id == null) return;
-      byId.set(merged.id, merged);
-    });
-    return Array.from(byId.values());
-  }, [cars, fleetVersion]);
+  const selectedCar = useMemo(() => {
+    if (selectedCarId == null) return null;
+    const base = (cars || []).find((c) => c.id === selectedCarId);
+    return base ? mergeCarWithFleet(base) : null;
+  }, [cars, selectedCarId, fleetVersion]);
 
-  const selectedCar = useMemo(
-    () => validCars.find((c) => c.id === selectedCarId) || null,
-    [validCars, selectedCarId],
+  const labelLayout = useMemo(
+    () => ({
+      ...FLEET_LABEL_LAYER.layout,
+      visibility: showDeviceName ? "visible" : "none",
+    }),
+    [showDeviceName],
   );
 
   return (
@@ -211,35 +176,18 @@ const MapTilerMapView = ({
       onMoveEnd={onMoveEnd}
       mapStyle={mapStyle}
       style={{ width: "100%", height: "100%" }}
-      onClick={() => handleSelectCar(null)}
+      onClick={onMapClick}
+      interactiveLayerIds={FLEET_HIT_LAYER_IDS}
+      onLoad={() => flush()}
       attributionControl
     >
-      {validCars.map((car) => (
-        <Marker
-          key={car.id}
-          longitude={car.position.lng}
-          latitude={car.position.lat}
-          anchor="center"
-          onClick={(e) => handleMarkerClick(e, car)}
-        >
-          <div
-            className="flex flex-col items-center"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleSelectCar(car);
-            }}
-          >
-            <CarMarkerIcon car={car} />
-            {showDeviceName && (
-              <div className="bg-white text-black text-[10px] py-0.5 px-1.5 rounded shadow mt-0.5 whitespace-nowrap pointer-events-none">
-                {car.name || "بدون اسم"}
-              </div>
-            )}
-          </div>
-        </Marker>
-      ))}
+      <Source id={FLEET_SOURCE_ID} type="geojson" data={initialData}>
+        <Layer {...FLEET_CIRCLE_LAYER} />
+        <Layer {...FLEET_ARROW_LAYER} />
+        <Layer {...FLEET_LABEL_LAYER} layout={labelLayout} />
+      </Source>
 
-      {selectedCar && (
+      {selectedCar?.position && (
         <CarInfoOverlay
           mapRef={mapRef}
           car={selectedCar}

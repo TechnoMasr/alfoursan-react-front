@@ -78,6 +78,19 @@ export function withStickyTelemetry(car, patch) {
   return { ...car, ...mergeTelemetry(car, patch) };
 }
 
+/**
+ * Heartbeat `externalVoltage` → UI field mapping (proven CURRENT consumers):
+ * - useCarSocket historically wrote `voltage` on React cars
+ * - CarsList/CarRow reads `power` via parseTelemetryNumber(car.power)
+ * - GPS/Mongo telemetry already use `power` (volts)
+ * Fleet-store heartbeat therefore patches `power` for the visible sidebar badge.
+ */
+export function heartbeatVoltageToPowerPatch(externalVoltage) {
+  const power = parseTelemetryNumber(externalVoltage);
+  if (power == null) return null;
+  return { power };
+}
+
 export function formatTelemetryDisplay(key, value, noDataLabel = "—") {
   if (value == null || !Number.isFinite(value)) return noDataLabel;
   if (key === "batteryLevel") return `${value}%`;

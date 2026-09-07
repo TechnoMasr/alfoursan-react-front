@@ -99,8 +99,12 @@ const DeviceTracking = () => {
     }
   }, [data]);
 
-  // ✅ WebSocket tracking (نفس منطق TenantDashboard) لجهاز واحد
-  useCarSocket(cars, setCars, isInit);
+  // Device-specific WS only (Node: { type: "subscribe", imei }). Same window.__WS_URL__.
+  // Do NOT join tenant room — that floods this page with fleet GPS.
+  useCarSocket(cars, setCars, isInit, {
+    useTenantRoom: false,
+    tag: "DeviceTracking",
+  });
 
   const car = cars[0] || null;
   const position = car?.position || null;

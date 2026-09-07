@@ -12,7 +12,11 @@ import { changeZoom } from "../../../store/mapSlice";
 import { carPath } from "../../../services/carPath";
 import { getCarStatus } from "../../../utils/getCarStatus";
 import { getOsmTileLayer } from "./osmTileLayers";
-import { mergeCarWithFleet } from "../../../utils/fleetPositionStore";
+import {
+  getFleetLive,
+  mergeCarWithFleet,
+  subscribeFleet,
+} from "../../../utils/fleetPositionStore";
 
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
@@ -215,6 +219,51 @@ function CarMarkersLayer({
       labelStateRef.current.delete(id);
     });
   }, [map, validCars, selectedCarId, clusters, showDeviceName, getCarColor]);
+
+  // Phase A: targeted imperative update for the changed device only.
+  // Must NOT setCars / mergeCarsWithFleet / rebuild all markers from this path.
+  useEffect(() => {
+    if (!map) return undefined;
+    return subscribeFleet((_version, change) => {
+      if (change?.visualChanged === false) return;
+      const id = change?.deviceId;
+      if (id == null) return;
+      const marker = markersRef.current.get(id);
+      if (!marker) return;
+      const live = change?.next ?? getFleetLive(id);
+      const lat = live?.position?.lat;
+      const lng = live?.position?.lng;
+      if (typeof lat !== "number" || typeof lng !== "number") return;
+      if (Number.isNaN(lat) || Number.isNaN(lng)) return;
+      marker.setLatLng([lat, lng]);
+
+      const meta = labelStateRef.current.get(id);
+      const rotation = Number(live.direction) || 0;
+      if (!meta || meta.rotation === rotation) return;
+
+      const partialCar = {
+        id,
+        name: meta.name,
+        direction: rotation,
+        speed: live.speed,
+        ignition_on: live.ignition_on,
+        motion: live.motion,
+        charge: live.charge,
+        isOffline: live.isOffline,
+        isInactive: live.isInactive,
+        lastMovingReceivedAtMs: live.lastMovingReceivedAtMs,
+        lastLiveReceivedAtMs: live.lastLiveReceivedAtMs,
+        lastFixAtMs: live.lastFixAtMs,
+        position: live.position,
+      };
+      marker.setIcon(createCarDivIcon(partialCar, showDeviceName));
+      labelStateRef.current.set(id, {
+        ...meta,
+        rotation,
+        color: getCarColor(partialCar),
+      });
+    });
+  }, [map, showDeviceName, getCarColor]);
 
   useEffect(() => {
     return () => {

@@ -123,8 +123,13 @@ const OutsideTracking = () => {
     setRenderPos(position);
   }, [data]);
 
-  // WebSocket tracking until expired
-  useCarSocket(cars, setCars, isInit && !isExpired);
+  // Device-specific WS only for the share-resolved IMEI (Node subscribe by imei).
+  // Same window.__WS_URL__. IMEI comes from Laravel-authorized getOutsideTracking.
+  // Do not join tenant room. (Public WS IMEI auth is a known Node gap — out of scope.)
+  useCarSocket(cars, setCars, isInit && !isExpired, {
+    useTenantRoom: false,
+    tag: "OutsideTracking",
+  });
 
   const car = cars[0] || null;
   const position = car?.position || null;

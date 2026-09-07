@@ -5,14 +5,20 @@ import {
   openPolygonMenu,
   openShareModal,
 } from "../../../../store/modalsSlice";
-import { memo, useEffect, useMemo, useRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { useDispatch } from "react-redux";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import Loader from "../../../../components/Loading/Loader";
 import { getCarStatus, isVehicleMoving } from "../../../../utils/getCarStatus";
 import { parseTelemetryNumber } from "../../../../utils/deviceTelemetry";
 import { Link } from "react-router-dom";
 import { MdOutlinePowerSettingsNew } from "react-icons/md";
 import { useTranslation } from "react-i18next";
+import {
+  CAR_LIST_OVERSCAN,
+  CAR_LIST_ROW_STRIDE_PX,
+  findSelectedCarIndex,
+} from "./carsListVirtualConfig";
 
 const CarRow = memo(function CarRow({
   car,
@@ -179,28 +185,81 @@ const CarsList = ({
   cars,
   isFetching,
 }) => {
-  const listRef = useRef(null);
+  const parentRef = useRef(null);
+  const carsRef = useRef(cars);
+  carsRef.current = cars;
+
+  const getItemKey = useCallback((index) => {
+    const id = carsRef.current?.[index]?.id;
+    return id != null ? id : index;
+  }, []);
+
+  const estimateSize = useCallback(() => CAR_LIST_ROW_STRIDE_PX, []);
+
+  const rowVirtualizer = useVirtualizer({
+    count: cars?.length ?? 0,
+    getScrollElement: () => parentRef.current,
+    estimateSize,
+    overscan: CAR_LIST_OVERSCAN,
+    getItemKey,
+  });
 
   useEffect(() => {
-    if (!selectedCarId || !listRef.current) return;
-    const row = listRef.current.querySelector(
-      `[data-car-id="${selectedCarId}"]`,
-    );
-    row?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [selectedCarId, selectionTrigger]);
+    if (selectedCarId == null) return;
+    // Read latest filtered list without depending on array identity (B1 list ticks).
+    const index = findSelectedCarIndex(carsRef.current, selectedCarId);
+    if (index < 0) return;
+    rowVirtualizer.scrollToIndex(index, { align: "auto" });
+  }, [selectedCarId, selectionTrigger, rowVirtualizer]);
+
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const totalSize = rowVirtualizer.getTotalSize();
 
   return (
-    <div ref={listRef} className="flex flex-col gap-1 overflow-y-auto flex-1">
-      {isFetching && <Loader />}
+    <div
+      ref={parentRef}
+      className="relative overflow-y-auto flex-1 min-h-0"
+    >
+      {isFetching && (
+        <div className="absolute top-0 inset-x-0 z-10 pointer-events-none">
+          <Loader />
+        </div>
+      )}
 
-      {cars.map((car) => (
-        <CarRow
-          key={car.id}
-          car={car}
-          isSelected={car.id === selectedCarId}
-          handleSelectCar={handleSelectCar}
-        />
-      ))}
+      {(cars?.length ?? 0) === 0 ? null : (
+        <div
+          style={{
+            height: `${totalSize}px`,
+            width: "100%",
+            position: "relative",
+          }}
+        >
+          {virtualItems.map((virtualRow) => {
+            const car = cars[virtualRow.index];
+            if (!car) return null;
+            return (
+              <div
+                key={virtualRow.key}
+                data-index={virtualRow.index}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  height: `${virtualRow.size}px`,
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+              >
+                <CarRow
+                  car={car}
+                  isSelected={car.id === selectedCarId}
+                  handleSelectCar={handleSelectCar}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };
